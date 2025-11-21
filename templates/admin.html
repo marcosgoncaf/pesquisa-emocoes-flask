@@ -3,32 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel do Pesquisador (Google Drive)</title>
+    <title>Painel do Pesquisador (Drive Upload)</title>
     <style>
-        /* (Mantenha o mesmo CSS bonito do anterior, vou omitir para economizar espaço) */
         body { font-family: 'Segoe UI', Roboto, sans-serif; background: #f4f7f6; padding: 20px; color: #333; }
-        .container { max-width: 900px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; }
-        .item-card { background: #fff; border: 2px solid #eee; padding: 25px; margin-top: 25px; border-radius: 10px; }
-        .btn { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        h1 { margin-bottom: 20px; color: #2c3e50; }
+        
+        .item-card { background: #fff; border: 2px solid #eee; padding: 25px; margin-top: 25px; border-radius: 10px; position: relative; }
+        .item-card:hover { border-color: #ccc; }
+        
+        label { display: block; margin-top: 10px; font-weight: 600; font-size: 14px; }
+        input, textarea { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        
+        .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 15px; }
+        .checkbox-group label { display: inline-flex; align-items: center; font-weight: normal; margin-right: 15px; cursor: pointer; }
+        .checkbox-group input { margin-right: 5px; }
+
+        .btn { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .btn-add { background: #3498db; color: white; margin-top: 20px; }
         .btn-green { background: #2ecc71; color: white; width: 100%; font-size: 16px; margin-top: 30px; }
-        input, textarea { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ccc; border-radius: 5px; }
-        .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .btn-del { position: absolute; top: 15px; right: 15px; background: transparent; color: #e74c3c; border: 1px solid #e74c3c; padding: 5px 10px; font-size: 12px; }
+        .btn-del:hover { background: #e74c3c; color: white; }
+
+        #result-area { display:none; margin-top:30px; padding:20px; background:#dff0d8; border: 1px solid #d6e9c6; border-radius: 6px; }
+        code { display: block; background: rgba(255,255,255,0.5); padding: 10px; margin-top: 10px; word-break: break-all; font-family: monospace; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Novo Estudo (Upload via Drive) ☁️</h1>
-    <input type="text" id="study_name" placeholder="Nome do Estudo">
-    <textarea id="welcome_message" rows="3" placeholder="Mensagem de Boas-vindas"></textarea>
+    <h1>Novo Estudo (Upload Drive) ☁️</h1>
+    
+    <label>Nome do Estudo</label>
+    <input type="text" id="study_name" placeholder="Ex: Teste de Embalagens - Vídeo">
+    
+    <label>Mensagem de Boas-vindas</label>
+    <textarea id="welcome_message" rows="2" placeholder="Instruções para o participante..."></textarea>
     
     <div id="items-container"></div>
     
-    <button class="btn" style="background:#ddd; margin-top:20px;" onclick="addItem()">+ Adicionar Amostra</button>
+    <button class="btn btn-add" onclick="addItem()">+ Adicionar Amostra</button>
     <button class="btn btn-green" onclick="saveStudy()">💾 FAZER UPLOAD E GERAR LINK</button>
 
-    <div id="result-area" style="display:none; margin-top:20px; padding:20px; background:#dff0d8;">
-        <h3>Sucesso!</h3>
+    <div id="result-area">
+        <h3 style="margin-top:0">Estudo Criado!</h3>
+        <p>Link para enviar aos participantes:</p>
         <code id="final-link"></code>
     </div>
 </div>
@@ -36,30 +55,35 @@
 <script>
     function addItem() {
         const id = Date.now();
-        // Note que o input file agora não tem "onchange" complexo, vamos pegar o arquivo direto no final
         const html = `
             <div class="item-card" id="card-${id}">
-                <div style="float:right"><button onclick="document.getElementById('card-${id}').remove()" style="color:red;border:none;background:none">X</button></div>
-                <h3>Amostra</h3>
+                <button class="btn btn-del" onclick="document.getElementById('card-${id}').remove()">Remover</button>
+                <h3 style="margin-top:0; color:#555">Amostra</h3>
                 
-                <label>Nome/ID:</label>
-                <input type="text" class="i-name">
+                <label>Nome / Código ID:</label>
+                <input type="text" class="i-name" placeholder="Ex: Amostra A">
                 
-                <label>Arquivo (Imagem ou Vídeo):</label>
+                <label>Arquivo (Imagem ou Vídeo MP4):</label>
                 <input type="file" class="i-file" accept="image/*,video/*">
                 
-                <label>Legenda:</label>
+                <label>Legenda (Opcional):</label>
                 <input type="text" class="i-caption">
                 
-                <div class="cols-2" style="margin-top:10px">
-                    <div>
-                        Tempo (s): <input type="number" class="i-duration" value="5">
-                        FPS: <input type="number" class="i-fps" value="3">
+                <div class="cols-2">
+                    <div style="background:#f9f9f9; padding:10px; border-radius:5px;">
+                        <label style="margin-top:0">Tempo de Exibição (s):</label>
+                        <input type="number" class="i-duration" value="5" min="1">
+                        
+                        <label>Captura (FPS):</label>
+                        <input type="number" class="i-fps" value="3" min="1" max="10">
                     </div>
-                    <div>
-                        <label><input type="checkbox" class="i-q-liking" checked> Gostar</label><br>
-                        <label><input type="checkbox" class="i-q-emotions" checked> Emoções</label><br>
-                        <label><input type="checkbox" class="i-q-word"> Palavra</label>
+                    <div style="background:#f9f9f9; padding:10px; border-radius:5px;">
+                        <label style="margin-top:0">Perguntas:</label>
+                        <div class="checkbox-group" style="margin-top:10px">
+                            <label><input type="checkbox" class="i-q-liking" checked> Nota</label>
+                            <label><input type="checkbox" class="i-q-emotions" checked> Emoções</label><br>
+                            <label><input type="checkbox" class="i-q-word"> Palavra</label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -69,23 +93,22 @@
 
     async function saveStudy() {
         const name = document.getElementById('study_name').value;
-        const btn = document.querySelector('.btn-green');
-        
+        if (!name) return alert("Dê um nome ao estudo.");
+
+        const cards = document.querySelectorAll('.item-card');
+        if(cards.length === 0) return alert("Adicione pelo menos uma amostra.");
+
         const formData = new FormData();
         formData.append('study_name', name);
         formData.append('welcome_message', document.getElementById('welcome_message').value);
 
-        const cards = document.querySelectorAll('.item-card');
-        if(cards.length === 0) return alert("Adicione itens");
-
-        let hasFileError = false;
+        let error = false;
         cards.forEach((card, index) => {
             const fileInput = card.querySelector('.i-file');
-            if(fileInput.files.length === 0) hasFileError = true;
+            if(fileInput.files.length === 0) { error = true; return; }
 
-            // Aqui construímos o pacote para o Python
             formData.append(`items[${index}][name]`, card.querySelector('.i-name').value);
-            formData.append(`items[${index}][file]`, fileInput.files[0]); // Envia o arquivo binário
+            formData.append(`items[${index}][file]`, fileInput.files[0]);
             formData.append(`items[${index}][caption]`, card.querySelector('.i-caption').value);
             formData.append(`items[${index}][duration]`, card.querySelector('.i-duration').value);
             formData.append(`items[${index}][fps]`, card.querySelector('.i-fps').value);
@@ -95,15 +118,17 @@
             formData.append(`items[${index}][q_word]`, card.querySelector('.i-q-word').checked);
         });
 
-        if(hasFileError) return alert("Todos os itens precisam de um arquivo!");
+        if(error) return alert("Todas as amostras precisam de um arquivo selecionado.");
 
-        btn.innerText = "⏳ Enviando arquivos para o Drive... (Aguarde)";
+        const btn = document.querySelector('.btn-green');
+        const originalText = btn.innerText;
+        btn.innerText = "⏳ Enviando arquivos para o Drive... (Não feche)";
         btn.disabled = true;
 
         try {
             const res = await fetch('/create_study', {
                 method: 'POST',
-                body: formData // Enviamos FormData, não JSON
+                body: formData
             });
             const data = await res.json();
             
@@ -111,17 +136,20 @@
                 document.getElementById('result-area').style.display = 'block';
                 document.getElementById('final-link').innerText = data.link;
                 btn.innerText = "✅ Sucesso!";
+                window.scrollTo(0, document.body.scrollHeight);
             } else {
-                alert("Erro: " + data.message);
+                alert("Erro no servidor: " + data.message);
+                btn.innerText = originalText;
                 btn.disabled = false;
-                btn.innerText = "💾 Tentar Novamente";
             }
         } catch(e) {
-            alert("Erro de conexão");
+            alert("Erro de conexão. Se o arquivo for vídeo grande, pode ter demorado muito.");
+            btn.innerText = originalText;
             btn.disabled = false;
-            btn.innerText = "💾 Tentar Novamente";
         }
     }
+    
+    // Adiciona o primeiro item automaticamente
     addItem();
 </script>
 </body>
