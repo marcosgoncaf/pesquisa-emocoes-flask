@@ -5,29 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Estudo Sensorial</title>
     <style>
-        /* CSS Mantido e Limpo */
-        body { font-family: 'Segoe UI', Roboto, sans-serif; background: #F8F9FA; margin: 0; padding: 20px; display: flex; justify-content: center; min-height: 100vh; align-items: center; }
+        body { font-family: 'Segoe UI', sans-serif; background: #F8F9FA; margin: 0; padding: 20px; display: flex; justify-content: center; min-height: 100vh; align-items: center; }
         .container { max-width: 500px; width: 100%; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); text-align: center; }
-        
-        /* Câmera */
-        #video-wrapper { position: relative; width: 100%; max-width: 320px; margin: 20px auto; border-radius: 15px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        #videoElement { width: 100%; height: auto; background: #000; transform: scaleX(-1); display: block; }
-        
-        .page { display: none; animation: fadeIn 0.4s ease-in-out; }
+        #video-wrapper { position: relative; width: 100%; max-width: 320px; margin: 20px auto; border-radius: 15px; overflow: hidden; background: #000; }
+        video { width: 100%; transform: scaleX(-1); display: block; }
+        .page { display: none; animation: fadeIn 0.4s ease; }
         .active { display: block; }
-        
-        button { background: #2c3e50; color: white; border: none; padding: 15px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 20px; width: 100%; transition: background 0.2s; }
-        button:hover { background: #34495e; }
+        button { background: #2c3e50; color: white; border: none; padding: 15px; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 20px; }
         button:disabled { background: #95a5a6; cursor: not-allowed; }
-        
-        input, select { width: 100%; padding: 12px; margin: 10px 0 20px 0; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
-        label { display: block; text-align: left; font-weight: 600; color: #555; margin-bottom: 5px; }
-
-        /* Estilos do Estímulo (Imagem/Vídeo) */
-        .stimulus-media { width: 100%; max-height: 400px; object-fit: contain; border-radius: 10px; margin: 20px auto; display: block; box-shadow: 0 5px 15px rgba(0,0,0,0.05); background: #f8f9fa; }
-        .progress-container { width: 100%; background: #eee; height: 6px; margin-top: 25px; border-radius: 3px; overflow: hidden; }
-        #progress-bar { width: 0%; background: #2ecc71; height: 100%; transition: width 0.1s linear; }
-        
+        input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        .stimulus-media { width: 100%; max-height: 400px; object-fit: contain; border-radius: 10px; margin: 20px auto; display: block; }
+        #progress-bar { width: 0%; background: #2ecc71; height: 6px; transition: width 0.1s linear; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
@@ -36,185 +24,175 @@
 <div class="container">
     <div id="p-welcome" class="page active">
         <h1>Bem-vindo</h1>
-        <p id="welcome-text"></p>
-        <div id="video-wrapper">
-            <video id="videoElement" autoplay playsinline muted></video>
-        </div>
-        <p id="status-msg" style="color: orange; font-weight: 500;">Iniciando câmera...</p>
-        <input type="text" id="participant_id" placeholder="Digite seu Nome ou ID para começar">
-        <button id="btn-start" disabled onclick="startExperiment()">INICIAR ESTUDO</button>
+        <p id="welcome-text">Carregando...</p>
+        <div id="video-wrapper"><video id="videoElement" autoplay playsinline muted></video></div>
+        <p id="status-msg" style="color: orange;">Aguardando câmera...</p>
+        <input type="text" id="participant_id" placeholder="Seu Nome ou ID">
+        <button id="btn-start" disabled onclick="startExperiment()">INICIAR</button>
     </div>
 
     <div id="p-stimulus" class="page">
-        <h2 style="color: #555;">Observe...</h2>
+        <h2 style="color:#555">Observe...</h2>
         <img id="stimulus-img" class="stimulus-media" style="display:none">
         <video id="stimulus-vid" class="stimulus-media" autoplay muted playsinline loop style="display:none"></video>
-        
-        <p id="stimulus-caption" style="font-size: 18px; color: #333; margin-top: 15px;"></p>
-        <div class="progress-container"><div id="progress-bar"></div></div>
+        <p id="stimulus-caption"></p>
+        <div style="background:#eee;height:6px;border-radius:3px;margin-top:20px"><div id="progress-bar"></div></div>
     </div>
 
     <div id="p-questions" class="page">
         <h2>Avaliação</h2>
-        <div id="q-container">
-            </div>
+        <div id="q-container"></div>
         <button onclick="nextItem()">PRÓXIMO</button>
     </div>
 
     <div id="p-end" class="page">
-        <h1>Obrigado!</h1>
-        <p>Aguarde, salvando seus dados...</p>
-        <div style="margin: 20px auto; width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-    </div>
-    <div id="p-error" class="page">
-        <h1 style="color: #e74c3c;">Erro</h1>
-        <p>Estudo não encontrado ou configuração inválida.</p>
+        <h1>Finalizando...</h1>
+        <p>Salvando dados. Não feche ainda.</p>
     </div>
 </div>
-
 <canvas id="hiddenCanvas" style="display:none;"></canvas>
 
 <script>
-    // Recebe a configuração do Flask
     const studyConfig = {{ study_config | tojson | safe }};
     const studyId = "{{ study_id }}";
+    if (studyConfig) document.getElementById('welcome-text').innerText = studyConfig.welcome_message;
 
-    if (!studyConfig || !studyConfig.items) { showPage('p-error'); throw new Error("Sem config"); }
-
-    document.getElementById('welcome-text').innerText = studyConfig.welcome_message || "Ajuste sua câmera.";
-
-    // --- VARIÁVEIS GLOBAIS ---
-    let currentItemIndex = 0;
+    let currentItem = 0;
     let results = [];
     let tempEmotions = [];
-    let video = document.getElementById('videoElement');
-    let canvas = document.getElementById('hiddenCanvas');
-    let ctx = canvas.getContext('2d');
-    let captureInterval = null;
+    let frameStats = { total: 0, valid: 0 }; // CONTADOR DE QUALIDADE
+    
+    const video = document.getElementById('videoElement');
+    const canvas = document.getElementById('hiddenCanvas');
+    const ctx = canvas.getContext('2d');
+    let captureInterval, progressInterval;
 
-    // --- CÂMERA ---
     async function initCamera() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 }, audio: false });
-            video.srcObject = stream;
-            video.onloadedmetadata = () => { setInterval(checkFaceLoop, 1500); };
-        } catch (err) {
-            document.getElementById('status-msg').innerText = "Erro: Câmera bloqueada. Por favor, permita o acesso e recarregue.";
-            document.getElementById('status-msg').style.color = "red";
-        }
+            const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+            video.srcObject = s;
+            video.onloadedmetadata = () => setInterval(checkFace, 2000);
+        } catch(e) { document.getElementById('status-msg').innerText = "Erro: Câmera bloqueada."; }
     }
 
-    function captureFrame() {
+    function capture() {
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0);
         return canvas.toDataURL('image/jpeg', 0.7);
     }
 
-    async function checkFaceLoop() {
+    async function checkFace() {
         if (document.getElementById('p-welcome').style.display === 'none') return;
-        const imgData = captureFrame();
-        const res = await fetch('/check_face', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({image: imgData}) });
-        const data = await res.json();
-        const status = document.getElementById('status-msg');
-        const btn = document.getElementById('btn-start');
-        if (data.face_detected) {
-            status.innerText = "Rosto detectado. Pronto."; status.style.color = "#2ecc71"; btn.disabled = false;
-        } else {
-            status.innerText = "Posicione seu rosto no centro..."; status.style.color = "orange"; btn.disabled = true;
-        }
+        const res = await fetch('/check_face', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({image:capture()}) });
+        const d = await res.json();
+        const st = document.getElementById('status-msg');
+        if(d.face_detected) { st.innerText = "Rosto OK!"; st.style.color="green"; document.getElementById('btn-start').disabled=false; }
+        else { st.innerText = "Rosto não detectado..."; st.style.color="orange"; document.getElementById('btn-start').disabled=true; }
     }
 
-    // --- FLUXO ---
-    function showPage(id) { document.querySelectorAll('.page').forEach(p => p.classList.remove('active')); document.getElementById(id).classList.add('active'); }
-
     function startExperiment() {
-        if (!document.getElementById('participant_id').value) return alert("Digite seu ID.");
-        document.getElementById('video-wrapper').style.display = 'none'; // Esconde câmera visualmente
+        if(!document.getElementById('participant_id').value) return alert("Digite seu ID");
+        document.getElementById('video-wrapper').style.display='none';
         runItem(0);
     }
 
-    function runItem(index) {
-        if (index >= studyConfig.items.length) return finishStudy();
-        currentItemIndex = index;
-        const item = studyConfig.items[index];
-        tempEmotions = []; // Reseta emoções para este item
+    function runItem(idx) {
+        if(idx >= studyConfig.items.length) return finish();
+        currentItem = idx;
+        const item = studyConfig.items[idx];
+        
+        // Reseta variaveis
+        tempEmotions = [];
+        frameStats = { total: 0, valid: 0 };
 
-        // Configura Mídia (Imagem ou Vídeo) usando o Base64 salvo
-        const imgEl = document.getElementById('stimulus-img');
-        const vidEl = document.getElementById('stimulus-vid');
-        if (item.file_type === 'video') {
-            imgEl.style.display = 'none'; vidEl.style.display = 'block'; vidEl.src = item.file_data;
+        const img = document.getElementById('stimulus-img');
+        const vid = document.getElementById('stimulus-vid');
+        
+        // Setup Mídia
+        if(item.file_type === 'video') {
+            img.style.display='none'; vid.style.display='block'; vid.src = item.file_data;
         } else {
-            vidEl.style.display = 'none'; imgEl.style.display = 'block'; imgEl.src = item.file_data;
+            vid.style.display='none'; img.style.display='block'; img.src = item.file_data;
         }
         document.getElementById('stimulus-caption').innerText = item.caption;
+        
         showPage('p-stimulus');
 
-        // --- LÓGICA DE CAPTURA DINÂMICA ---
-        const DURATION_MS = item.duration * 1000;
-        // Calcula o intervalo em ms baseado no FPS desejado (ex: 10fps = captura a cada 100ms)
-        const CAPTURE_DELAY = 1000 / item.fps; 
-
-        // Inicia loop de captura em background
-        captureInterval = setInterval(async () => {
-            const imgData = captureFrame();
-            // Envia para análise sem travar a UI
-            fetch('/analyze_emotion', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({image: imgData}) })
-                .then(r => r.json()).then(d => tempEmotions.push(d.emotion)).catch(e => console.error(e));
-        }, CAPTURE_DELAY);
-
-        // Timer da barra de progresso e mudança de tela
+        const durationMs = item.duration * 1000;
+        const delay = 1000 / item.fps;
         let start = Date.now();
-        const progressInterval = setInterval(() => {
+
+        // Loop de Captura
+        captureInterval = setInterval(async () => {
+            frameStats.total++; // Contabiliza tentativa
+            const imgData = capture();
+            
+            try {
+                const res = await fetch('/analyze_emotion', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({image:imgData}) });
+                const d = await res.json();
+                
+                if(d.status === 'success') {
+                    tempEmotions.push(d.emotion);
+                    frameStats.valid++; // Contabiliza sucesso (rosto achado)
+                } else if (d.status === 'no_face') {
+                    // Ignora silenciosamente ou loga se quiser
+                    console.log("Frame ignorado: Sem rosto");
+                }
+            } catch(e) { console.error(e); }
+        }, delay);
+
+        // Barra de Progresso
+        progressInterval = setInterval(() => {
             let elapsed = Date.now() - start;
-            document.getElementById('progress-bar').style.width = (elapsed / DURATION_MS * 100) + "%";
-            if (elapsed >= DURATION_MS) {
+            document.getElementById('progress-bar').style.width = (elapsed/durationMs*100)+"%";
+            if(elapsed >= durationMs) {
+                clearInterval(captureInterval);
                 clearInterval(progressInterval);
-                clearInterval(captureInterval); // Para de capturar
-                setupQuestions(item.questions);
-                showPage('p-questions');
+                showQuestions(item.questions);
             }
-        }, 50); // Atualiza a barra suavemente
+        }, 50);
     }
 
-    function setupQuestions(qConfig) {
-        const container = document.getElementById('q-container');
-        container.innerHTML = ''; // Limpa anteriores
-        if (qConfig.liking) container.innerHTML += '<label>Quanto você gostou? (1-9)</label><input type="number" id="ans-liking" min="1" max="9">';
-        if (qConfig.emotions) container.innerHTML += '<label>Quais emoções sentiu?</label><select id="ans-emotions" multiple style="height:100px"><option>Alegria</option><option>Tristeza</option><option>Medo</option><option>Nojo</option><option>Surpresa</option><option>Neutro</option></select><p style="font-size:12px;color:#666">Segure Ctrl/Cmd para selecionar múltiplos</p>';
-        if (qConfig.word) container.innerHTML += '<label>Uma palavra que define:</label><input type="text" id="ans-word">';
+    function showQuestions(q) {
+        const c = document.getElementById('q-container');
+        c.innerHTML = '';
+        if(q.liking) c.innerHTML+='<label>Quanto gostou? (1-9)</label><input type="number" id="ans-lk" min="1" max="9">';
+        if(q.emotions) c.innerHTML+='<label>Emoções?</label><input type="text" id="ans-em" placeholder="Ex: Feliz, Surpreso">';
+        if(q.word) c.innerHTML+='<label>Uma palavra:</label><input type="text" id="ans-wd">';
+        showPage('p-questions');
     }
 
     function nextItem() {
-        const liking = document.getElementById('ans-liking');
-        const word = document.getElementById('ans-word');
-        const emoSelect = document.getElementById('ans-emotions');
-        
-        let selectedEmotions = [];
-        if(emoSelect) selectedEmotions = Array.from(emoSelect.selectedOptions).map(o => o.value);
-
         results.push({
-            stimulus: studyConfig.items[currentItemIndex].name,
-            liking: liking ? liking.value : "",
-            word: word ? word.value : "",
-            emotions_list: tempEmotions, // Salva todas as emoções capturadas
+            stimulus: studyConfig.items[currentItem].name,
+            liking: document.getElementById('ans-lk')?.value || "",
+            word: document.getElementById('ans-wd')?.value || "",
+            emotions_list: tempEmotions,
+            // METADADOS DE QUALIDADE
+            total_frames: frameStats.total,
+            valid_frames: frameStats.valid,
+            fps_config: studyConfig.items[currentItem].fps,
+            duration_config: studyConfig.items[currentItem].duration
         });
-        runItem(currentItemIndex + 1);
+        runItem(currentItem+1);
     }
 
-    async function finishStudy() {
+    async function finish() {
         showPage('p-end');
-        const pid = document.getElementById('participant_id').value;
         await fetch('/save_data', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ participant_id: pid, study_id: studyId, results: results })
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+                participant_id: document.getElementById('participant_id').value,
+                study_id: studyId,
+                results: results
+            })
         });
-        document.querySelector('#p-end').innerHTML = "<h1>Concluído!</h1><p style='color:green'>Dados salvos com sucesso. Pode fechar a janela.</p>";
-        video.srcObject.getTracks().forEach(track => track.stop()); // Desliga a câmera
+        document.querySelector('#p-end').innerHTML = "<h1>Concluído!</h1><p>Pode fechar.</p>";
+        video.srcObject.getTracks().forEach(t=>t.stop());
     }
 
+    function showPage(id) { document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); document.getElementById(id).classList.add('active'); }
     initCamera();
 </script>
-<style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
 </body>
 </html>

@@ -7,15 +7,15 @@ from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
-# Mantemos o limite alto caso use links diretos
 app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024 
 
-# ID DA PASTA (Não será usado para upload direto, mas mantemos a config)
+# SEU ID DA PASTA DO DRIVE
 FOLDER_ID = '1DW-GHQLfcW6za8_fGF55urbDFWugrjdX'
 
 _drive_service = None
 _sheets_client = None
 
+# --- CONEXÃO GOOGLE (LAZY) ---
 def get_google_services():
     global _drive_service, _sheets_client
     if _drive_service and _sheets_client: return _drive_service, _sheets_client
@@ -28,6 +28,7 @@ def get_google_services():
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     
     creds = None
+    # Tenta local ou variáveis de ambiente
     if os.path.exists("credentials.json"):
         creds = service_account.Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
     else:
@@ -39,21 +40,15 @@ def get_google_services():
 
     _drive_service = build('drive', 'v3', credentials=creds)
     gc = gspread.authorize(creds)
-    _sheets_client = gc.open("Resultados Pesquisa Emoções")
+    _sheets_client = gc.open("Resultados Pesquisa Emoções") # Verifique se o nome da planilha está exato
     return _drive_service, _sheets_client
 
-# --- NOVA FUNÇÃO MÁGICA ---
+# --- AUXILIARES ---
 def convert_drive_link(url):
-    """Transforma link de compartilhamento do Drive em Link Direto de Vídeo"""
-    # Tenta extrair o ID do arquivo usando Regex
-    # Padrões comuns: /file/d/ID/view, id=ID
-    patterns = [
-        r'/file/d/([a-zA-Z0-9_-]+)',
-        r'id=([a-zA-Z0-9_-]+)',
-        r'/open\?id=([a-zA-Z0-9_-]+)'
-    ]
-    
+    """Converte links de compartilhamento do Drive para links de visualização direta"""
+    # Tenta achar o ID
     file_id = None
+    patterns = [r'/file/d/([a-zA-Z0-9_-]+)', r'id=([a-zA-Z0-9_-]+)', r'/open\?id=([a-zA-Z0-9_-]+)']
     for p in patterns:
         match = re.search(p, url)
         if match:
@@ -61,10 +56,9 @@ def convert_drive_link(url):
             break
             
     if file_id:
-        # Retorna o link de exportação/visualização direta que funciona na tag <video>
+        # Link de exportação direta (funciona melhor para tags de imagem/video)
         return f"https://drive.google.com/uc?export=view&id={file_id}"
-    
-    return url # Se não for do Drive, retorna original
+    return url
 
 def decode_image_lazy(base64_string):
     import base64
@@ -74,6 +68,7 @@ def decode_image_lazy(base64_string):
     nparr = np.frombuffer(base64.b64decode(base64_string), np.uint8)
     return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
+# --- ROTAS ---
 @app.route('/')
 def home():
     study_id = request.args.get('study_id')
@@ -84,7 +79,7 @@ def home():
             ws = sh.worksheet("Estudos")
             cell = ws.find(study_id, in_column=1)
             if cell: study_config = json.loads(ws.cell(cell.row, 2).value)
-        except: pass
+        except Exception as e: print(f"Erro leitura estudo: {e}")
     return render_template('index.html', study_id=study_id, study_config=study_config)
 
 @app.route('/admin')
@@ -95,31 +90,25 @@ def create_study():
     try:
         _, sh = get_google_services()
         form = request.form
-        # (Ignoramos request.files pois o upload está quebrado pelo Google)
-        
         items = []
         i = 0
         while True:
             if f'items[{i}][name]' not in form: break
             
-            # Pega apenas a URL (O botão de upload vai ser ignorado na lógica)
             direct_url = form.get(f'items[{i}][directUrl]')
-            
-            # Se o usuário tentou upload, damos erro explicativo
             input_type = form.get(f'items[{i}][inputType]')
+            
             if input_type == 'upload':
-                return jsonify({'status': 'error', 'message': f"Item {i+1}: Upload direto indisponível. Por favor, use a opção 'Link Externo' com um link do Google Drive."}), 400
-
+                return jsonify({'status': 'error', 'message': "Upload direto desativado pelo Google. Use Link do Drive."}), 400
+            
             if not direct_url:
                 return jsonify({'status': 'error', 'message': f"Item {i+1}: Link vazio."}), 400
 
-            # Converte link do Drive para Link Direto
             final_url = convert_drive_link(direct_url)
             
-            # Detecta tipo
+            # Detecção simples de vídeo
             ftype = 'image'
-            # Se for link do Drive, assumimos que pode ser vídeo, ou checa extensões
-            if 'drive.google.com' in final_url or any(x in direct_url.lower() for x in ['.mp4', '.mov', '.avi']):
+            if 'drive.google.com' in final_url or any(x in direct_url.lower() for x in ['.mp4', '.mov', '.avi', 'youtube']):
                 ftype = 'video'
 
             items.append({
@@ -150,9 +139,7 @@ def create_study():
         ws.append_row([sid, json.dumps(cfg)])
         
         return jsonify({'status': 'success', 'link': f"{request.host_url.rstrip('/')}/?study_id={sid}"})
-
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    except Exception as e: return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/check_face', methods=['POST'])
 def check_face():
@@ -161,7 +148,8 @@ def check_face():
         data = request.json
         img = decode_image_lazy(data['image'])
         cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        faces = cascade.detectMultiScale(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 1.1, 4)
+        # Reduzimos minNeighbors para 3 para ser mais tolerante no check-in
+        faces = cascade.detectMultiScale(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 1.1, 3)
         return jsonify({'face_detected': len(faces) > 0})
     except Exception as e: return jsonify({'error': str(e)}), 500
 
@@ -171,10 +159,29 @@ def analyze_emotion_route():
         from deepface import DeepFace
         data = request.json
         img = decode_image_lazy(data['image'])
-        res = DeepFace.analyze(img_path=img, actions=['emotion'], enforce_detection=False, detector_backend='opencv')
-        dom = res[0]['dominant_emotion'] if isinstance(res, list) else res['dominant_emotion']
-        return jsonify({'emotion': dom})
-    except Exception as e: return jsonify({'emotion': 'erro'})
+        
+        # CONFIGURAÇÃO DE QUALIDADE
+        # enforce_detection=True -> Garante que só analisa se tiver rosto real.
+        # detector_backend='opencv' -> Rápido e leve.
+        try:
+            res = DeepFace.analyze(
+                img_path=img, 
+                actions=['emotion'], 
+                enforce_detection=True, # AQUI ESTÁ O FILTRO DE QUALIDADE
+                detector_backend='opencv',
+                silent=True
+            )
+            dom = res[0]['dominant_emotion'] if isinstance(res, list) else res['dominant_emotion']
+            return jsonify({'status': 'success', 'emotion': dom})
+            
+        except ValueError:
+            # DeepFace lança ValueError se não achar rosto com enforce_detection=True
+            return jsonify({'status': 'no_face', 'emotion': None})
+            
+    except Exception as e: 
+        # Erro genérico do servidor ou biblioteca
+        print(f"Erro DeepFace: {e}")
+        return jsonify({'status': 'error', 'emotion': None})
 
 @app.route('/save_data', methods=['POST'])
 def save_data():
@@ -182,13 +189,43 @@ def save_data():
         _, sh = get_google_services()
         data = request.json
         pid = data.get('participant_id'); sid = data.get('study_id'); results = data.get('results', [])
+        
         rows = []
         for item in results:
-            emo = item.get('emotions_list', [])
-            main = max(set(emo), key=emo.count) if emo else "N/A"
-            rows.append([pid, sid, item.get('stimulus'), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), main, item.get('liking'), ", ".join(map(str, emo)), item.get('word')])
+            emotions = item.get('emotions_list', [])
+            # Remove nulos e erros da lista para calcular a moda
+            valid_emotions = [e for e in emotions if e and e != 'erro' and e != 'no_face']
+            
+            main_emo = "Inconclusivo"
+            if valid_emotions:
+                main_emo = max(set(valid_emotions), key=valid_emotions.count)
+            
+            # Metricas de Qualidade
+            total_frames = item.get('total_frames', 0)
+            valid_frames = item.get('valid_frames', 0)
+            fps_cfg = item.get('fps_config', 0)
+            duration_cfg = item.get('duration_config', 0)
+            
+            rows.append([
+                pid, sid, item.get('stimulus'), 
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                main_emo, 
+                item.get('liking'), 
+                ", ".join(valid_emotions), # Salva lista limpa
+                item.get('word'),
+                # NOVAS COLUNAS DE RELATÓRIO
+                duration_cfg,
+                fps_cfg,
+                total_frames,
+                valid_frames
+            ])
+            
         try: ws = sh.worksheet("Resultados")
-        except: ws = sh.add_worksheet("Resultados", 1000, 10)
+        except: 
+            ws = sh.add_worksheet("Resultados", 1000, 15)
+            # Cria cabeçalho atualizado se for nova aba
+            ws.append_row(["Participante", "ID Estudo", "Estímulo", "Data", "Emoção Dominante", "Nota", "Emoções Detalhadas", "Palavra", "Tempo(s)", "FPS", "Total Frames", "Frames Válidos"])
+            
         ws.append_rows(rows)
         return jsonify({'status': 'success'})
     except Exception as e: return jsonify({'status': 'error', 'message': str(e)}), 500
