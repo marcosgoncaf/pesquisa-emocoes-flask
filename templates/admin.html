@@ -3,36 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel Pesquisador (Híbrido)</title>
+    <title>Admin Híbrido</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; padding: 20px; color: #333; }
-        .container { max-width: 900px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; }
-        .item-card { background: #fff; border: 2px solid #eee; padding: 25px; margin-top: 25px; border-radius: 10px; position: relative; }
-        .btn { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
-        .btn-green { background: #2ecc71; color: white; width: 100%; font-size: 16px; margin-top: 30px; }
-        input, textarea { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; color:#333; }
+        .container { max-width: 850px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; }
+        .item-card { background: #fff; border: 1px solid #ddd; padding: 20px; margin-top: 20px; border-radius: 8px; }
+        input, textarea, select { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-add { background: #007bff; color: white; margin-top: 10px; }
+        .btn-save { background: #28a745; color: white; width: 100%; margin-top: 30px; font-size: 16px; padding: 15px; }
         
-        .type-selector { margin: 15px 0; background: #f0f0f0; padding: 10px; border-radius: 5px; display: flex; gap: 20px; }
-        .type-selector label { display: flex; align-items: center; cursor: pointer; font-weight: normal; margin: 0; }
-        .input-hidden { display: none; }
+        .type-switch { display: flex; gap: 20px; background: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .type-switch label { cursor: pointer; display: flex; align-items: center; }
+        .type-switch input { width: auto; margin-right: 8px; }
+        
+        .hidden { display: none; }
+        .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>Novo Estudo</h1>
-    <input type="text" id="study_name" placeholder="Nome do Estudo">
-    <textarea id="welcome_message" rows="2" placeholder="Mensagem de Boas-vindas"></textarea>
-    
-    <div id="items-container"></div>
-    
-    <button class="btn" style="background:#3498db; color:white; margin-top:20px;" onclick="addItem()">+ Adicionar Amostra</button>
-    <button class="btn btn-green" onclick="saveStudy()">💾 SALVAR E GERAR LINK</button>
+    <label>Nome:</label>
+    <input type="text" id="study_name">
+    <label>Mensagem de Boas-vindas:</label>
+    <textarea id="welcome_message" rows="2"></textarea>
 
-    <div id="result-area" style="display:none; margin-top:20px; padding:20px; background:#dff0d8;">
-        <h3>Sucesso!</h3>
-        <code id="final-link" style="word-break: break-all;"></code>
+    <div id="items-list"></div>
+
+    <button class="btn btn-add" onclick="addItem()">+ Adicionar Amostra</button>
+    <button class="btn btn-save" onclick="submitStudy()">💾 Salvar e Gerar Link</button>
+    
+    <div id="result" style="display:none; margin-top:20px; padding:15px; background:#d4edda; color:#155724; border-radius:4px;">
+        <strong>Link:</strong> <span id="link-url"></span>
     </div>
 </div>
 
@@ -41,117 +45,92 @@
         const id = Date.now();
         const html = `
             <div class="item-card" id="card-${id}">
-                <button onclick="document.getElementById('card-${id}').remove()" style="float:right; color:red; border:none; background:none; cursor:pointer;">Excluir</button>
-                <h3 style="margin-top:0; color:#555">Amostra</h3>
+                <button onclick="this.parentElement.remove()" style="float:right; color:red; border:none; background:none; cursor:pointer">X</button>
+                <h3>Amostra</h3>
+                <label>Nome / ID:</label>
+                <input type="text" class="i-name">
                 
-                <label>Nome / Código:</label>
-                <input type="text" class="i-name" placeholder="Ex: Amostra 1">
-
-                <div class="type-selector">
-                    <label><input type="radio" name="type-${id}" value="upload" checked onclick="toggleInput('${id}', 'upload')"> 📂 Fazer Upload</label>
-                    <label><input type="radio" name="type-${id}" value="url" onclick="toggleInput('${id}', 'url')"> 🔗 Link Direto</label>
+                <div class="type-switch">
+                    <label><input type="radio" name="t-${id}" value="upload" checked onclick="toggle('${id}', 'upload')"> Upload Arquivo</label>
+                    <label><input type="radio" name="t-${id}" value="url" onclick="toggle('${id}', 'url')"> Link URL</label>
                 </div>
 
-                <div id="input-upload-${id}">
-                    <label>Selecione o Arquivo:</label>
+                <div id="box-upload-${id}">
                     <input type="file" class="i-file" accept="image/*,video/*">
                 </div>
-
-                <div id="input-url-${id}" class="input-hidden">
-                    <label>Cole a URL (Imagem ou Vídeo MP4):</label>
+                <div id="box-url-${id}" class="hidden">
                     <input type="text" class="i-url" placeholder="https://...">
                 </div>
-                
+
                 <label>Legenda:</label>
                 <input type="text" class="i-caption">
                 
-                <div class="cols-2" style="margin-top:10px">
+                <div class="cols-2">
                     <div>
-                        Tempo (s): <input type="number" class="i-duration" value="5">
-                        FPS: <input type="number" class="i-fps" value="3">
+                        <label>Tempo (s):</label><input type="number" class="i-dur" value="5">
+                        <label>FPS:</label><input type="number" class="i-fps" value="3">
                     </div>
                     <div>
-                        <label><input type="checkbox" class="i-q-liking" checked> Nota</label> 
-                        <label><input type="checkbox" class="i-q-emotions" checked> Emoções</label> 
-                        <label><input type="checkbox" class="i-q-word"> Palavra</label>
+                        <label>Perguntas:</label><br>
+                        <label><input type="checkbox" class="i-lk" checked> Nota</label>
+                        <label><input type="checkbox" class="i-em" checked> Emoções</label>
+                        <label><input type="checkbox" class="i-wd"> Palavra</label>
                     </div>
                 </div>
             </div>
         `;
-        document.getElementById('items-container').insertAdjacentHTML('beforeend', html);
+        document.getElementById('items-list').insertAdjacentHTML('beforeend', html);
     }
 
-    function toggleInput(id, type) {
-        if(type === 'upload') {
-            document.getElementById(`input-upload-${id}`).style.display = 'block';
-            document.getElementById(`input-url-${id}`).style.display = 'none';
-        } else {
-            document.getElementById(`input-upload-${id}`).style.display = 'none';
-            document.getElementById(`input-url-${id}`).style.display = 'block';
-        }
+    function toggle(id, type) {
+        document.getElementById(`box-upload-${id}`).style.display = type === 'upload' ? 'block' : 'none';
+        document.getElementById(`box-url-${id}`).style.display = type === 'url' ? 'block' : 'none';
     }
 
-    async function saveStudy() {
+    async function submitStudy() {
+        const btn = document.querySelector('.btn-save');
         const name = document.getElementById('study_name').value;
-        if (!name) return alert("Dê um nome ao estudo.");
-
-        const formData = new FormData();
-        formData.append('study_name', name);
-        formData.append('welcome_message', document.getElementById('welcome_message').value);
+        if(!name) return alert("Preencha o nome do estudo");
 
         const cards = document.querySelectorAll('.item-card');
-        if(cards.length === 0) return alert("Adicione itens.");
+        if(cards.length === 0) return alert("Adicione itens");
 
-        let error = false;
-        cards.forEach((card, index) => {
-            // Verifica qual modo está selecionado (Upload ou URL)
+        const fd = new FormData();
+        fd.append('study_name', name);
+        fd.append('welcome_message', document.getElementById('welcome_message').value);
+
+        cards.forEach((card, i) => {
             const isUpload = card.querySelector(`input[value="upload"]`).checked;
-            const fileInput = card.querySelector('.i-file');
-            const urlInput = card.querySelector('.i-url');
-
-            formData.append(`items[${index}][name]`, card.querySelector('.i-name').value);
-            formData.append(`items[${index}][caption]`, card.querySelector('.i-caption').value);
-            formData.append(`items[${index}][duration]`, card.querySelector('.i-duration').value);
-            formData.append(`items[${index}][fps]`, card.querySelector('.i-fps').value);
             
-            // Envia o tipo de input
-            formData.append(`items[${index}][inputType]`, isUpload ? 'upload' : 'url');
-
-            if (isUpload) {
-                if(fileInput.files.length > 0) {
-                    formData.append(`items[${index}][file]`, fileInput.files[0]);
-                } else {
-                    error = true;
-                }
+            fd.append(`items[${i}][name]`, card.querySelector('.i-name').value);
+            fd.append(`items[${i}][inputType]`, isUpload ? 'upload' : 'url');
+            
+            if(isUpload) {
+                const f = card.querySelector('.i-file').files[0];
+                if(f) fd.append(`items[${i}][file]`, f);
             } else {
-                if(urlInput.value) {
-                    formData.append(`items[${index}][directUrl]`, urlInput.value);
-                } else {
-                    error = true;
-                }
+                fd.append(`items[${i}][directUrl]`, card.querySelector('.i-url').value);
             }
 
-            formData.append(`items[${index}][q_liking]`, card.querySelector('.i-q-liking').checked);
-            formData.append(`items[${index}][q_emotions]`, card.querySelector('.i-q-emotions').checked);
-            formData.append(`items[${index}][q_word]`, card.querySelector('.i-q-word').checked);
+            fd.append(`items[${i}][caption]`, card.querySelector('.i-caption').value);
+            fd.append(`items[${i}][duration]`, card.querySelector('.i-dur').value);
+            fd.append(`items[${i}][fps]`, card.querySelector('.i-fps').value);
+            fd.append(`items[${i}][q_liking]`, card.querySelector('.i-lk').checked);
+            fd.append(`items[${i}][q_emotions]`, card.querySelector('.i-em').checked);
+            fd.append(`items[${i}][q_word]`, card.querySelector('.i-wd').checked);
         });
 
-        if(error) return alert("Preencha os arquivos ou links de todos os itens.");
-
-        const btn = document.querySelector('.btn-green');
-        btn.innerText = "⏳ Enviando... (Aguarde)";
-        btn.disabled = true;
+        btn.disabled = true; btn.innerText = "Processando...";
 
         try {
-            const res = await fetch('/create_study', { method: 'POST', body: formData });
-            const data = await res.json();
-            
-            if(data.status === 'success') {
-                document.getElementById('result-area').style.display = 'block';
-                document.getElementById('final-link').innerText = data.link;
-                btn.innerText = "✅ Sucesso!";
+            const res = await fetch('/create_study', { method: 'POST', body: fd });
+            const json = await res.json();
+            if(json.status === 'success') {
+                document.getElementById('result').style.display = 'block';
+                document.getElementById('link-url').innerText = json.link;
+                btn.innerText = "Salvo!";
             } else {
-                alert("Erro: " + data.message);
+                alert("Erro: " + json.message);
                 btn.disabled = false; btn.innerText = "Salvar";
             }
         } catch(e) {
