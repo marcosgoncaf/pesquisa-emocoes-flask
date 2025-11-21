@@ -1,3 +1,5 @@
+import random
+import string
 import os
 import json
 import base64
@@ -102,6 +104,51 @@ def save_data():
         worksheet = sh.worksheet("Resultados") # Garanta que a aba existe
         worksheet.append_rows(rows)
         return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+# --- ROTAS DO ADMIN ---
+
+@app.route('/admin')
+def admin_panel():
+    """Carrega a página do pesquisador"""
+    return render_template('admin.html')
+
+@app.route('/create_study', methods=['POST'])
+def create_study():
+    """Recebe o JSON do admin e salva na aba 'Estudos' do Sheets"""
+    data = request.json
+    
+    try:
+        # 1. Gera um ID único (ex: "x7k9j2m1")
+        study_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        
+        # 2. Prepara a configuração (JSON)
+        config = {
+            "study_name": data.get('study_name'),
+            "welcome_message": data.get('welcome_message'),
+            "items": data.get('items'),
+            "exposure_time": int(data.get('exposure_time', 5000)), # em ms
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        # 3. Salva na Planilha (Aba 'Estudos')
+        try:
+            ws = sh.worksheet("Estudos")
+        except:
+            # Se não existir, cria a aba
+            ws = sh.add_worksheet(title="Estudos", rows=100, cols=5)
+            ws.append_row(["Study ID", "Configuration JSON"])
+            
+        # Salva: Coluna A = ID, Coluna B = JSON Completo
+        ws.append_row([study_id, json.dumps(config)])
+        
+        # 4. Retorna o Link gerado
+        # Pega a URL atual do site (ex: https://seu-app.onrender.com)
+        base_url = request.host_url.rstrip('/')
+        full_link = f"{base_url}/?study_id={study_id}"
+        
+        return jsonify({'status': 'success', 'link': full_link, 'id': study_id})
+        
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 

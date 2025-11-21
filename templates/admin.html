@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel do Pesquisador</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; }
+        label { display: block; margin-top: 15px; font-weight: bold; }
+        input, textarea, select { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        
+        .item-card { background: #f8f9fa; border: 1px solid #ddd; padding: 15px; margin-top: 15px; border-radius: 8px; }
+        .btn { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-top: 10px; }
+        .btn:hover { background: #0056b3; }
+        .btn-green { background: #28a745; width: 100%; font-size: 18px; margin-top: 30px; }
+        .btn-red { background: #dc3545; margin-left: 10px; }
+        
+        #result-area { margin-top: 30px; padding: 20px; background: #e9ecef; border-radius: 5px; display: none; }
+        code { background: #333; color: #fff; padding: 5px; border-radius: 4px; word-break: break-all; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Painel do Pesquisador 🧪</h1>
+    
+    <label>Nome do Estudo</label>
+    <input type="text" id="study_name" placeholder="Ex: Teste de Queijos Artesanais">
+    
+    <label>Mensagem de Boas-vindas</label>
+    <textarea id="welcome_message" rows="3">Bem-vindo! Hoje você avaliará 3 amostras...</textarea>
+    
+    <label>Tempo de Exposição da Imagem (ms)</label>
+    <input type="number" id="exposure_time" value="5000">
+
+    <hr>
+    <h2>Itens (Estímulos)</h2>
+    <div id="items-container">
+        </div>
+    
+    <button class="btn" onclick="addItem()">+ Adicionar Item</button>
+
+    <button class="btn btn-green" onclick="saveStudy()">💾 SALVAR E GERAR LINK</button>
+
+    <div id="result-area">
+        <h3>Estudo Criado!</h3>
+        <p>Copie o link abaixo e envie aos participantes:</p>
+        <code id="final-link">...</code>
+    </div>
+</div>
+
+<script>
+    let items = [];
+
+    function addItem() {
+        const id = Date.now();
+        const html = `
+            <div class="item-card" id="card-${id}">
+                <label>Nome/Código da Amostra</label>
+                <input type="text" class="i-name" placeholder="Ex: Amostra 402">
+                
+                <label>URL da Imagem</label>
+                <input type="text" class="i-url" placeholder="https://...">
+                
+                <label>Legenda (Opcional)</label>
+                <input type="text" class="i-caption" placeholder="Observe a textura...">
+                
+                <button class="btn btn-red" onclick="remove('card-${id}')">Remover</button>
+            </div>
+        `;
+        document.getElementById('items-container').insertAdjacentHTML('beforeend', html);
+    }
+
+    function remove(id) {
+        document.getElementById(id).remove();
+    }
+
+    async function saveStudy() {
+        const name = document.getElementById('study_name').value;
+        if(!name) return alert("Dê um nome ao estudo!");
+
+        // Coleta os itens do HTML
+        const itemCards = document.querySelectorAll('.item-card');
+        const itemsData = [];
+        
+        itemCards.forEach(card => {
+            itemsData.push({
+                name: card.querySelector('.i-name').value,
+                url: card.querySelector('.i-url').value,
+                caption: card.querySelector('.i-caption').value
+            });
+        });
+
+        if(itemsData.length === 0) return alert("Adicione pelo menos 1 item.");
+
+        const payload = {
+            study_name: name,
+            welcome_message: document.getElementById('welcome_message').value,
+            exposure_time: document.getElementById('exposure_time').value,
+            items: itemsData
+        };
+
+        // Envia para o Python
+        const btn = document.querySelector('.btn-green');
+        btn.innerText = "Salvando...";
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/create_study', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            
+            if(data.status === 'success') {
+                document.getElementById('result-area').style.display = 'block';
+                document.getElementById('final-link').innerText = data.link;
+                alert("Sucesso!");
+            } else {
+                alert("Erro: " + data.message);
+            }
+        } catch(e) {
+            alert("Erro de conexão");
+        }
+        
+        btn.innerText = "💾 SALVAR E GERAR LINK";
+        btn.disabled = false;
+    }
+
+    // Adiciona um item inicial
+    addItem();
+</script>
+
+</body>
+</html>
