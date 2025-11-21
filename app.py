@@ -2,33 +2,25 @@ import os
 import json
 import random
 import string
+import re
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 
-# --- CONFIGURAÇÃO LEVE ---
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024  # 30MB Limite
+# Mantemos o limite alto caso use links diretos
+app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024 
 
-# SEU ID DA PASTA
+# ID DA PASTA (Não será usado para upload direto, mas mantemos a config)
 FOLDER_ID = '1DW-GHQLfcW6za8_fGF55urbDFWugrjdX'
 
-# Variáveis globais vazias (Cache)
 _drive_service = None
 _sheets_client = None
 
-# =============================================================================
-# --- CONEXÃO TARDIA (SÓ CONECTA QUANDO PRECISA) ---
-# =============================================================================
 def get_google_services():
     global _drive_service, _sheets_client
-    
-    # Se já estiver conectado, usa a conexão salva (economiza tempo)
-    if _drive_service and _sheets_client:
-        return _drive_service, _sheets_client
+    if _drive_service and _sheets_client: return _drive_service, _sheets_client
 
-    print("🔌 Conectando ao Google agora...")
-    
-    # Importações aqui dentro para não pesar na inicialização do site
+    print("🔌 Conectando Google...")
     import gspread
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
@@ -41,40 +33,40 @@ def get_google_services():
     else:
         creds_json = os.environ.get("GOOGLE_CREDENTIALS")
         if creds_json:
-            creds_dict = json.loads(creds_json)
-            creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+            creds = service_account.Credentials.from_service_account_info(json.loads(creds_json), scopes=SCOPES)
     
-    if not creds:
-        raise Exception("Credenciais não encontradas.")
+    if not creds: raise Exception("Credenciais não encontradas.")
 
     _drive_service = build('drive', 'v3', credentials=creds)
     gc = gspread.authorize(creds)
     _sheets_client = gc.open("Resultados Pesquisa Emoções")
-    
-    print("✅ Conectado!")
     return _drive_service, _sheets_client
 
-# =============================================================================
-# --- FUNÇÕES AUXILIARES ---
-# =============================================================================
-def upload_to_drive_lazy(stream, filename, content_type):
-    """Faz o upload carregando a lib do Google só agora"""
-    from googleapiclient.http import MediaIoBaseUpload
-    drive, _ = get_google_services()
+# --- NOVA FUNÇÃO MÁGICA ---
+def convert_drive_link(url):
+    """Transforma link de compartilhamento do Drive em Link Direto de Vídeo"""
+    # Tenta extrair o ID do arquivo usando Regex
+    # Padrões comuns: /file/d/ID/view, id=ID
+    patterns = [
+        r'/file/d/([a-zA-Z0-9_-]+)',
+        r'id=([a-zA-Z0-9_-]+)',
+        r'/open\?id=([a-zA-Z0-9_-]+)'
+    ]
     
-    meta = {
-        'name': f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{filename}",
-        'parents': [FOLDER_ID]
-    }
-    media = MediaIoBaseUpload(stream, mimetype=content_type, resumable=True)
-    file = drive.files().create(body=meta, media_body=media, fields='id').execute()
-    fid = file.get('id')
+    file_id = None
+    for p in patterns:
+        match = re.search(p, url)
+        if match:
+            file_id = match.group(1)
+            break
+            
+    if file_id:
+        # Retorna o link de exportação/visualização direta que funciona na tag <video>
+        return f"https://drive.google.com/uc?export=view&id={file_id}"
     
-    drive.permissions().create(fileId=fid, body={'type': 'anyone', 'role': 'reader'}, fields='id').execute()
-    return f"https://drive.google.com/uc?export=view&id={fid}"
+    return url # Se não for do Drive, retorna original
 
 def decode_image_lazy(base64_string):
-    """Carrega CV2 e Numpy só quando for analisar rosto"""
     import base64
     import numpy as np
     import cv2
@@ -82,62 +74,53 @@ def decode_image_lazy(base64_string):
     nparr = np.frombuffer(base64.b64decode(base64_string), np.uint8)
     return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-# =============================================================================
-# --- ROTAS ---
-# =============================================================================
 @app.route('/')
 def home():
     study_id = request.args.get('study_id')
     study_config = None
-    
-    # Só tenta conectar no Google se tiver um ID na URL
     if study_id:
         try:
             _, sh = get_google_services()
             ws = sh.worksheet("Estudos")
             cell = ws.find(study_id, in_column=1)
             if cell: study_config = json.loads(ws.cell(cell.row, 2).value)
-        except Exception as e:
-            print(f"Erro ao ler estudo: {e}")
-            
+        except: pass
     return render_template('index.html', study_id=study_id, study_config=study_config)
 
 @app.route('/admin')
-def admin_panel():
-    # Rota super leve, apenas carrega o HTML
-    return render_template('admin.html')
+def admin_panel(): return render_template('admin.html')
 
 @app.route('/create_study', methods=['POST'])
 def create_study():
     try:
-        # Agora sim conectamos no Google (Lazy)
         _, sh = get_google_services()
-        
         form = request.form
-        files = request.files
+        # (Ignoramos request.files pois o upload está quebrado pelo Google)
+        
         items = []
         i = 0
-        
         while True:
             if f'items[{i}][name]' not in form: break
             
-            itype = form.get(f'items[{i}][inputType]')
-            durl = form.get(f'items[{i}][directUrl]')
-            fobj = files.get(f'items[{i}][file]')
+            # Pega apenas a URL (O botão de upload vai ser ignorado na lógica)
+            direct_url = form.get(f'items[{i}][directUrl]')
             
-            final_url = ""
-            ftype = "image"
+            # Se o usuário tentou upload, damos erro explicativo
+            input_type = form.get(f'items[{i}][inputType]')
+            if input_type == 'upload':
+                return jsonify({'status': 'error', 'message': f"Item {i+1}: Upload direto indisponível. Por favor, use a opção 'Link Externo' com um link do Google Drive."}), 400
 
-            if itype == 'url' and durl:
-                final_url = durl
-                if any(x in durl.lower() for x in ['.mp4', 'youtube', 'vimeo']): ftype = 'video'
+            if not direct_url:
+                return jsonify({'status': 'error', 'message': f"Item {i+1}: Link vazio."}), 400
+
+            # Converte link do Drive para Link Direto
+            final_url = convert_drive_link(direct_url)
             
-            elif itype == 'upload' and fobj and fobj.filename:
-                if fobj.mimetype.startswith('video'): ftype = 'video'
-                # Chama função de upload
-                final_url = upload_to_drive_lazy(fobj.stream, fobj.filename, fobj.mimetype)
-            
-            if not final_url: raise Exception(f"Item {i+1} sem arquivo/link.")
+            # Detecta tipo
+            ftype = 'image'
+            # Se for link do Drive, assumimos que pode ser vídeo, ou checa extensões
+            if 'drive.google.com' in final_url or any(x in direct_url.lower() for x in ['.mp4', '.mov', '.avi']):
+                ftype = 'video'
 
             items.append({
                 "name": form.get(f'items[{i}][name]'),
@@ -174,7 +157,7 @@ def create_study():
 @app.route('/check_face', methods=['POST'])
 def check_face():
     try:
-        import cv2 # Carrega CV2 só agora
+        import cv2
         data = request.json
         img = decode_image_lazy(data['image'])
         cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -185,7 +168,7 @@ def check_face():
 @app.route('/analyze_emotion', methods=['POST'])
 def analyze_emotion_route():
     try:
-        from deepface import DeepFace # Carrega IA PESADA só agora
+        from deepface import DeepFace
         data = request.json
         img = decode_image_lazy(data['image'])
         res = DeepFace.analyze(img_path=img, actions=['emotion'], enforce_detection=False, detector_backend='opencv')
@@ -204,7 +187,6 @@ def save_data():
             emo = item.get('emotions_list', [])
             main = max(set(emo), key=emo.count) if emo else "N/A"
             rows.append([pid, sid, item.get('stimulus'), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), main, item.get('liking'), ", ".join(map(str, emo)), item.get('word')])
-        
         try: ws = sh.worksheet("Resultados")
         except: ws = sh.add_worksheet("Resultados", 1000, 10)
         ws.append_rows(rows)
