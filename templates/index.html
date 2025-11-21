@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estudo Sensorial</title>
+    <style>
+        /* CSS Limpo e Moderno */
+        body { font-family: 'Segoe UI', sans-serif; background: #F8F9FA; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { max-width: 600px; width: 100%; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; }
+        
+        /* Elemento de Vídeo (Onde a mágica acontece) */
+        #videoElement { 
+            width: 100%; max-width: 320px; border-radius: 15px; background: #000; 
+            transform: scaleX(-1); /* Espelho */
+            display: none; /* Começa oculto */
+            margin: 0 auto;
+        }
+        
+        .page { display: none; } /* Todas as "fases" começam ocultas */
+        .active { display: block; animation: fadeIn 0.5s; }
+        
+        button { background: #111; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; cursor: pointer; margin-top: 20px; width: 100%; }
+        button:hover { background: #333; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        
+        input, select { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        
+        .stimulus-img { width: 250px; height: 250px; border-radius: 50%; object-fit: cover; margin: 20px auto; display: block; border: 4px solid #fff; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="p-welcome" class="page active">
+        <h1>Bem-vindo</h1>
+        <p>Para participar, precisamos acessar sua câmera para calibração.</p>
+        <div id="cam-container">
+            <video id="videoElement" autoplay playsinline></video>
+        </div>
+        <p id="status-msg" style="color: orange;">Aguardando permissão...</p>
+        <input type="text" id="participant_id" placeholder="Digite seu Nome ou ID">
+        <button id="btn-start" disabled onclick="startExperiment()">INICIAR</button>
+    </div>
+
+    <div id="p-stimulus" class="page">
+        <h3>Observe...</h3>
+        <img id="stimulus-img" class="stimulus-img" src="">
+        <p id="stimulus-caption"></p>
+        <div style="width: 100%; background: #eee; height: 5px; margin-top: 20px;"><div id="progress-bar" style="width: 0%; background: #111; height: 100%;"></div></div>
+    </div>
+
+    <div id="p-questions" class="page">
+        <h3>Avaliação</h3>
+        <label>O quanto você gostou? (1-9)</label>
+        <input type="number" id="ans-liking" min="1" max="9">
+        
+        <label>Palavra que define:</label>
+        <input type="text" id="ans-word">
+        
+        <button onclick="nextItem()">PRÓXIMO</button>
+    </div>
+
+    <div id="p-end" class="page">
+        <h1>Obrigado!</h1>
+        <p>Salvando seus dados...</p>
+    </div>
+</div>
+
+<canvas id="hiddenCanvas" style="display:none;"></canvas>
+
+<script>
+    // --- CONFIGURAÇÃO DO ESTUDO ---
+    // Aqui você pode injetar o JSON vindo do Flask/Sheets
+    const studyItems = [
+        {name: "Queijo A", url: "https://via.placeholder.com/300", caption: "Amostra A"}, 
+        {name: "Queijo B", url: "https://via.placeholder.com/300/000000/FFFFFF", caption: "Amostra B"}
+    ];
+    const EXPOSURE_TIME = 5000; // ms
+
+    // --- VARIÁVEIS DE ESTADO ---
+    let currentItemIndex = 0;
+    let results = [];
+    let video = document.getElementById('videoElement');
+    let canvas = document.getElementById('hiddenCanvas');
+    let ctx = canvas.getContext('2d');
+    let streamObj = null;
+
+    // --- INICIALIZAÇÃO DA CÂMERA ---
+    async function initCamera() {
+        try {
+            streamObj = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+            video.srcObject = streamObj;
+            video.style.display = 'block'; // Mostra o vídeo só no check-in
+            
+            // Checagem periódica de rosto
+            setInterval(checkFaceLoop, 2000); 
+        } catch (err) {
+            document.getElementById('status-msg').textContent = "Erro: Câmera negada ou inacessível.";
+            console.error(err);
+        }
+    }
+
+    function captureFrame() {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+        return canvas.toDataURL('image/jpeg', 0.8); // Retorna Base64
+    }
+
+    async function checkFaceLoop() {
+        if (document.getElementById('p-welcome').style.display === 'none') return; // Só checa na tela inicial
+
+        const imgData = captureFrame();
+        
+        // Envia para o Flask checar
+        const response = await fetch('/check_face', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({image: imgData})
+        });
+        const data = await response.json();
+        
+        if (data.face_detected) {
+            document.getElementById('status-msg').textContent = "Rosto Detectado! Pode iniciar.";
+            document.getElementById('status-msg').style.color = "green";
+            document.getElementById('btn-start').disabled = false;
+        } else {
+            document.getElementById('status-msg').textContent = "Posicione o rosto...";
+            document.getElementById('status-msg').style.color = "orange";
+            document.getElementById('btn-start').disabled = true;
+        }
+    }
+
+    // --- FLUXO DO APP ---
+    initCamera();
+
+    function showPage(id) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+
+    function startExperiment() {
+        const pid = document.getElementById('participant_id').value;
+        if (!pid) return alert("Digite seu nome");
+        
+        // Esconde o vídeo visualmente, mas ele CONTINUA rodando no JS
+        video.style.display = 'none'; 
+        
+        runItem(0);
+    }
+
+    function runItem(index) {
+        if (index >= studyItems.length) return finishStudy();
+        
+        currentItemIndex = index;
+        const item = studyItems[index];
+        
+        // Configura tela de estímulo
+        document.getElementById('stimulus-img').src = item.url;
+        document.getElementById('stimulus-caption').textContent = item.caption;
+        showPage('p-stimulus');
+
+        // Captura emoção no meio do tempo (2.5s)
+        setTimeout(async () => {
+            const imgData = captureFrame();
+            const res = await fetch('/analyze_emotion', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({image: imgData})
+            });
+            const data = await res.json();
+            // Armazena temporariamente no objeto global
+            if(!window.tempEmotions) window.tempEmotions = [];
+            window.tempEmotions.push(data.emotion);
+        }, EXPOSURE_TIME / 2);
+
+        // Timer para mudar para pergunta
+        let start = Date.now();
+        let timer = setInterval(() => {
+            let elapsed = Date.now() - start;
+            let pct = (elapsed / EXPOSURE_TIME) * 100;
+            document.getElementById('progress-bar').style.width = pct + "%";
+            
+            if (elapsed >= EXPOSURE_TIME) {
+                clearInterval(timer);
+                showPage('p-questions');
+            }
+        }, 100);
+    }
+
+    function nextItem() {
+        // Salva respostas
+        results.push({
+            stimulus: studyItems[currentItemIndex].name,
+            liking: document.getElementById('ans-liking').value,
+            word: document.getElementById('ans-word').value,
+            emotions_list: window.tempEmotions || [],
+            emotions: window.tempEmotions || [] // Simplificado
+        });
+        
+        // Limpa campos
+        window.tempEmotions = [];
+        document.getElementById('ans-liking').value = '';
+        document.getElementById('ans-word').value = '';
+        
+        runItem(currentItemIndex + 1);
+    }
+
+    async function finishStudy() {
+        showPage('p-end');
+        const pid = document.getElementById('participant_id').value;
+        
+        await fetch('/save_data', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                participant_id: pid,
+                study_id: "{{ study_id }}",
+                results: results
+            })
+        });
+        
+        document.querySelector('#p-end p').textContent = "Dados Salvos. Pode fechar.";
+    }
+</script>
+
+</body>
+</html>

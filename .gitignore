@@ -1,0 +1,7 @@
+# Ignorar arquivos de sistema e chaves de segurança
+__pycache__/
+*.pyc
+credentials.json
+venv/
+.env
+.DS_Store
