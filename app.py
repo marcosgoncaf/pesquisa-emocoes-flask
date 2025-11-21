@@ -2,33 +2,33 @@ import os
 import json
 import random
 import string
-import time
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 
-# --- CONFIGURAÇÃO INICIAL LEVE ---
+# --- CONFIGURAÇÃO LEVE ---
 app = Flask(__name__)
-# Limite de 30MB para uploads
-app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024 
+app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024  # 30MB Limite
 
-# ID DA PASTA NO GOOGLE DRIVE
+# SEU ID DA PASTA
 FOLDER_ID = '1DW-GHQLfcW6za8_fGF55urbDFWugrjdX'
 
-# Variáveis globais para cache de conexão
+# Variáveis globais vazias (Cache)
 _drive_service = None
 _sheets_client = None
 
 # =============================================================================
-# --- GERENCIADOR DE CONEXÕES (CARREGAMENTO TARDIO) ---
+# --- CONEXÃO TARDIA (SÓ CONECTA QUANDO PRECISA) ---
 # =============================================================================
 def get_google_services():
-    """Conecta ao Google apenas quando necessário"""
     global _drive_service, _sheets_client
     
+    # Se já estiver conectado, usa a conexão salva (economiza tempo)
     if _drive_service and _sheets_client:
         return _drive_service, _sheets_client
 
-    print("🔌 Iniciando conexão com Google Services...")
+    print("🔌 Conectando ao Google agora...")
+    
+    # Importações aqui dentro para não pesar na inicialização do site
     import gspread
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
@@ -45,44 +45,36 @@ def get_google_services():
             creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     
     if not creds:
-        raise Exception("Credenciais do Google não encontradas.")
+        raise Exception("Credenciais não encontradas.")
 
     _drive_service = build('drive', 'v3', credentials=creds)
     gc = gspread.authorize(creds)
     _sheets_client = gc.open("Resultados Pesquisa Emoções")
     
+    print("✅ Conectado!")
     return _drive_service, _sheets_client
 
 # =============================================================================
 # --- FUNÇÕES AUXILIARES ---
 # =============================================================================
-
-def upload_file_to_drive(stream, filename, content_type):
-    """
-    Faz o upload para o Drive.
-    FIX: Recebe 'content_type' (mimetype) explicitamente para evitar erro de atributo.
-    """
+def upload_to_drive_lazy(stream, filename, content_type):
+    """Faz o upload carregando a lib do Google só agora"""
     from googleapiclient.http import MediaIoBaseUpload
-    
     drive, _ = get_google_services()
     
-    file_metadata = {
+    meta = {
         'name': f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{filename}",
         'parents': [FOLDER_ID]
     }
-    
-    # Usa o content_type passado como argumento
     media = MediaIoBaseUpload(stream, mimetype=content_type, resumable=True)
+    file = drive.files().create(body=meta, media_body=media, fields='id').execute()
+    fid = file.get('id')
     
-    file = drive.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    file_id = file.get('id')
-    
-    # Permissão Pública
-    drive.permissions().create(fileId=file_id, body={'type': 'anyone', 'role': 'reader'}, fields='id').execute()
-    
-    return f"https://drive.google.com/uc?export=view&id={file_id}"
+    drive.permissions().create(fileId=fid, body={'type': 'anyone', 'role': 'reader'}, fields='id').execute()
+    return f"https://drive.google.com/uc?export=view&id={fid}"
 
-def process_base64_image(base64_string):
+def decode_image_lazy(base64_string):
+    """Carrega CV2 e Numpy só quando for analisar rosto"""
     import base64
     import numpy as np
     import cv2
@@ -93,116 +85,112 @@ def process_base64_image(base64_string):
 # =============================================================================
 # --- ROTAS ---
 # =============================================================================
-
 @app.route('/')
 def home():
     study_id = request.args.get('study_id')
     study_config = None
+    
+    # Só tenta conectar no Google se tiver um ID na URL
     if study_id:
         try:
             _, sh = get_google_services()
             ws = sh.worksheet("Estudos")
             cell = ws.find(study_id, in_column=1)
             if cell: study_config = json.loads(ws.cell(cell.row, 2).value)
-        except Exception as e: print(f"Erro busca estudo: {e}")
+        except Exception as e:
+            print(f"Erro ao ler estudo: {e}")
+            
     return render_template('index.html', study_id=study_id, study_config=study_config)
 
 @app.route('/admin')
-def admin_panel(): return render_template('admin.html')
+def admin_panel():
+    # Rota super leve, apenas carrega o HTML
+    return render_template('admin.html')
 
 @app.route('/create_study', methods=['POST'])
 def create_study():
     try:
-        form_data = request.form; files = request.files
-        _, sh = get_google_services() # Garante conexão
+        # Agora sim conectamos no Google (Lazy)
+        _, sh = get_google_services()
         
-        study_name = form_data.get('study_name')
+        form = request.form
+        files = request.files
         items = []
-        index = 0
+        i = 0
         
-        # LOOP DE PROCESSAMENTO MISTO (UPLOAD E URL)
         while True:
-            # Se não encontrar o nome do item X, assume que a lista acabou
-            if f'items[{index}][name]' not in form_data: break
+            if f'items[{i}][name]' not in form: break
             
-            # Pega o tipo de entrada ('upload' ou 'url')
-            input_type = form_data.get(f'items[{index}][inputType]')
-            direct_url = form_data.get(f'items[{index}][directUrl]')
-            file_obj = files.get(f'items[{index}][file]')
+            itype = form.get(f'items[{i}][inputType]')
+            durl = form.get(f'items[{i}][directUrl]')
+            fobj = files.get(f'items[{i}][file]')
             
             final_url = ""
-            file_type = "image"
+            ftype = "image"
 
-            # 1. CASO SEJA URL DIRETA (INTERNET)
-            if input_type == 'url' and direct_url:
-                final_url = direct_url
-                # Tenta detectar se é vídeo pela extensão ou domínio
-                if any(x in direct_url.lower() for x in ['.mp4', 'youtube', 'vimeo']): 
-                    file_type = 'video'
+            if itype == 'url' and durl:
+                final_url = durl
+                if any(x in durl.lower() for x in ['.mp4', 'youtube', 'vimeo']): ftype = 'video'
             
-            # 2. CASO SEJA UPLOAD (COMPUTADOR)
-            elif input_type == 'upload' and file_obj and file_obj.filename:
-                if file_obj.mimetype.startswith('video'): 
-                    file_type = 'video'
-                
-                # CHAMADA CORRIGIDA: Passa o mimetype explicitamente
-                final_url = upload_file_to_drive(file_obj.stream, file_obj.filename, file_obj.mimetype)
+            elif itype == 'upload' and fobj and fobj.filename:
+                if fobj.mimetype.startswith('video'): ftype = 'video'
+                # Chama função de upload
+                final_url = upload_to_drive_lazy(fobj.stream, fobj.filename, fobj.mimetype)
             
-            # Se falhou nos dois (não tem link nem arquivo)
-            if not final_url: 
-                raise Exception(f"Erro no Item {index+1}: Selecione um arquivo ou cole um link.")
+            if not final_url: raise Exception(f"Item {i+1} sem arquivo/link.")
 
-            # Adiciona item processado na lista
             items.append({
-                "name": form_data.get(f'items[{index}][name]'),
+                "name": form.get(f'items[{i}][name]'),
                 "file_data": final_url,
-                "file_type": file_type,
-                "caption": form_data.get(f'items[{index}][caption]'),
-                "duration": int(form_data.get(f'items[{index}][duration]')),
-                "fps": int(form_data.get(f'items[{index}][fps]')),
+                "file_type": ftype,
+                "caption": form.get(f'items[{i}][caption]'),
+                "duration": int(form.get(f'items[{i}][duration]')),
+                "fps": int(form.get(f'items[{i}][fps]')),
                 "questions": {
-                    "liking": form_data.get(f'items[{index}][q_liking]') == 'true',
-                    "emotions": form_data.get(f'items[{index}][q_emotions]') == 'true',
-                    "word": form_data.get(f'items[{index}][q_word]') == 'true'
+                    "liking": form.get(f'items[{i}][q_liking]') == 'true',
+                    "emotions": form.get(f'items[{i}][q_emotions]') == 'true',
+                    "word": form.get(f'items[{i}][q_word]') == 'true'
                 }
             })
-            index += 1
+            i += 1
 
-        # Finaliza e Salva
-        study_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-        config = {"study_name": study_name, "welcome_message": form_data.get('welcome_message'), "items": items, "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        sid = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        cfg = {
+            "study_name": form.get('study_name'),
+            "welcome_message": form.get('welcome_message'),
+            "items": items,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
         
         try: ws = sh.worksheet("Estudos")
-        except: ws = sh.add_worksheet(title="Estudos", rows=100, cols=5); ws.append_row(["ID", "Config JSON"])
-        ws.append_row([study_id, json.dumps(config)])
+        except: ws = sh.add_worksheet("Estudos", 100, 5); ws.append_row(["ID", "Config"])
+        ws.append_row([sid, json.dumps(cfg)])
         
-        return jsonify({'status': 'success', 'link': f"{request.host_url.rstrip('/')}/?study_id={study_id}"})
+        return jsonify({'status': 'success', 'link': f"{request.host_url.rstrip('/')}/?study_id={sid}"})
 
     except Exception as e:
-        print(f"Erro Create Study: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/check_face', methods=['POST'])
 def check_face():
     try:
-        import cv2
+        import cv2 # Carrega CV2 só agora
         data = request.json
-        img = process_base64_image(data['image'])
-        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+        img = decode_image_lazy(data['image'])
+        cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        faces = cascade.detectMultiScale(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 1.1, 4)
         return jsonify({'face_detected': len(faces) > 0})
     except Exception as e: return jsonify({'error': str(e)}), 500
 
 @app.route('/analyze_emotion', methods=['POST'])
 def analyze_emotion_route():
     try:
-        from deepface import DeepFace
+        from deepface import DeepFace # Carrega IA PESADA só agora
         data = request.json
-        img = process_base64_image(data['image'])
-        analysis = DeepFace.analyze(img_path=img, actions=['emotion'], enforce_detection=False, detector_backend='opencv')
-        dominant = analysis[0]['dominant_emotion'] if isinstance(analysis, list) else analysis['dominant_emotion']
-        return jsonify({'emotion': dominant})
+        img = decode_image_lazy(data['image'])
+        res = DeepFace.analyze(img_path=img, actions=['emotion'], enforce_detection=False, detector_backend='opencv')
+        dom = res[0]['dominant_emotion'] if isinstance(res, list) else res['dominant_emotion']
+        return jsonify({'emotion': dom})
     except Exception as e: return jsonify({'emotion': 'erro'})
 
 @app.route('/save_data', methods=['POST'])
@@ -213,9 +201,10 @@ def save_data():
         pid = data.get('participant_id'); sid = data.get('study_id'); results = data.get('results', [])
         rows = []
         for item in results:
-            emotions = item.get('emotions_list', [])
-            main_emo = max(set(emotions), key=emotions.count) if emotions else "N/A"
-            rows.append([pid, sid, item.get('stimulus'), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), main_emo, item.get('liking'), ", ".join(map(str, emotions)), item.get('word')])
+            emo = item.get('emotions_list', [])
+            main = max(set(emo), key=emo.count) if emo else "N/A"
+            rows.append([pid, sid, item.get('stimulus'), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), main, item.get('liking'), ", ".join(map(str, emo)), item.get('word')])
+        
         try: ws = sh.worksheet("Resultados")
         except: ws = sh.add_worksheet("Resultados", 1000, 10)
         ws.append_rows(rows)
