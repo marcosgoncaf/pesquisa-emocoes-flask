@@ -3,40 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Híbrido</title>
+    <title>Painel Pesquisador (Híbrido)</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; color:#333; }
-        .container { max-width: 850px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; }
-        .item-card { background: #fff; border: 1px solid #ddd; padding: 20px; margin-top: 20px; border-radius: 8px; }
-        input, textarea, select { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
-        .btn-add { background: #007bff; color: white; margin-top: 10px; }
-        .btn-save { background: #28a745; color: white; width: 100%; margin-top: 30px; font-size: 16px; padding: 15px; }
+        .container { max-width: 850px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        h1 { color: #2c3e50; }
         
-        .type-switch { display: flex; gap: 20px; background: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 4px; }
-        .type-switch label { cursor: pointer; display: flex; align-items: center; }
+        .item-card { background: #fff; border: 1px solid #ddd; padding: 20px; margin-top: 20px; border-radius: 8px; position: relative; }
+        
+        label { display: block; margin-top: 10px; font-weight: 600; font-size: 14px; }
+        input, textarea, select { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        
+        .btn { padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        .btn-add { background: #007bff; color: white; margin-top: 15px; }
+        .btn-save { background: #28a745; color: white; width: 100%; margin-top: 30px; font-size: 16px; padding: 15px; }
+        .btn-del { position: absolute; top: 15px; right: 15px; background: transparent; color: #e74c3c; border: 1px solid #e74c3c; padding: 5px 10px; font-size: 12px; }
+        .btn-del:hover { background: #e74c3c; color: white; }
+        
+        .type-switch { display: flex; gap: 20px; background: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 4px; border: 1px solid #eee; }
+        .type-switch label { cursor: pointer; display: flex; align-items: center; font-weight: normal; margin: 0; }
         .type-switch input { width: auto; margin-right: 8px; }
         
         .hidden { display: none; }
         .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px; }
+        
+        .checkbox-group label { display: inline-flex; align-items: center; font-weight: normal; margin-right: 15px; cursor: pointer; margin-top: 5px; }
+        .checkbox-group input { width: auto; margin-right: 5px; }
+
+        #result { display:none; margin-top:20px; padding:20px; background:#d4edda; color:#155724; border: 1px solid #c3e6cb; border-radius:4px; }
+        #link-url { display: block; background: rgba(255,255,255,0.6); padding: 10px; margin-top: 10px; font-family: monospace; font-weight: bold; word-break: break-all; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>Novo Estudo</h1>
-    <label>Nome:</label>
-    <input type="text" id="study_name">
+    
+    <label>Nome do Estudo:</label>
+    <input type="text" id="study_name" placeholder="Ex: Teste de Embalagens A/B">
+    
     <label>Mensagem de Boas-vindas:</label>
-    <textarea id="welcome_message" rows="2"></textarea>
+    <textarea id="welcome_message" rows="2" placeholder="Instruções para o participante..."></textarea>
 
     <div id="items-list"></div>
 
     <button class="btn btn-add" onclick="addItem()">+ Adicionar Amostra</button>
-    <button class="btn btn-save" onclick="submitStudy()">💾 Salvar e Gerar Link</button>
+    <button class="btn btn-save" onclick="submitStudy()">💾 Salvar Estudo e Gerar Link</button>
     
-    <div id="result" style="display:none; margin-top:20px; padding:15px; background:#d4edda; color:#155724; border-radius:4px;">
-        <strong>Link:</strong> <span id="link-url"></span>
+    <div id="result">
+        <strong>Estudo Criado com Sucesso!</strong>
+        <p>Copie o link abaixo:</p>
+        <span id="link-url"></span>
     </div>
 </div>
 
@@ -45,36 +62,45 @@
         const id = Date.now();
         const html = `
             <div class="item-card" id="card-${id}">
-                <button onclick="this.parentElement.remove()" style="float:right; color:red; border:none; background:none; cursor:pointer">X</button>
-                <h3>Amostra</h3>
-                <label>Nome / ID:</label>
-                <input type="text" class="i-name">
+                <button class="btn btn-del" onclick="document.getElementById('card-${id}').remove()">Remover</button>
+                <h3 style="margin-top:0; color:#555">Amostra</h3>
+                
+                <label>Nome / Código ID:</label>
+                <input type="text" class="i-name" placeholder="Ex: Amostra 402">
                 
                 <div class="type-switch">
-                    <label><input type="radio" name="t-${id}" value="upload" checked onclick="toggle('${id}', 'upload')"> Upload Arquivo</label>
-                    <label><input type="radio" name="t-${id}" value="url" onclick="toggle('${id}', 'url')"> Link URL</label>
+                    <label><input type="radio" name="t-${id}" value="upload" checked onclick="toggle('${id}', 'upload')"> 📂 Upload Arquivo</label>
+                    <label><input type="radio" name="t-${id}" value="url" onclick="toggle('${id}', 'url')"> 🔗 Link Externo</label>
                 </div>
 
                 <div id="box-upload-${id}">
+                    <label>Selecione o Arquivo (Imagem ou Vídeo):</label>
                     <input type="file" class="i-file" accept="image/*,video/*">
+                    <small style="color:#666">Formatos: .jpg, .png, .mp4, .mov (Máx 30MB)</small>
                 </div>
                 <div id="box-url-${id}" class="hidden">
-                    <input type="text" class="i-url" placeholder="https://...">
+                    <label>Cole a URL Direta:</label>
+                    <input type="text" class="i-url" placeholder="https://exemplo.com/imagem.jpg ou Link do Youtube/Vimeo">
                 </div>
 
-                <label>Legenda:</label>
+                <label>Legenda (Opcional):</label>
                 <input type="text" class="i-caption">
                 
                 <div class="cols-2">
-                    <div>
-                        <label>Tempo (s):</label><input type="number" class="i-dur" value="5">
-                        <label>FPS:</label><input type="number" class="i-fps" value="3">
+                    <div style="background:#f9f9f9; padding:10px; border-radius:4px;">
+                        <label style="margin-top:0">Tempo (segundos):</label>
+                        <input type="number" class="i-dur" value="5" min="1">
+                        
+                        <label>Captura (FPS):</label>
+                        <input type="number" class="i-fps" value="3" min="1" max="10">
                     </div>
-                    <div>
-                        <label>Perguntas:</label><br>
-                        <label><input type="checkbox" class="i-lk" checked> Nota</label>
-                        <label><input type="checkbox" class="i-em" checked> Emoções</label>
-                        <label><input type="checkbox" class="i-wd"> Palavra</label>
+                    <div style="background:#f9f9f9; padding:10px; border-radius:4px;">
+                        <label style="margin-top:0">Perguntas:</label>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" class="i-lk" checked> Nota (1-9)</label><br>
+                            <label><input type="checkbox" class="i-em" checked> Emoções</label><br>
+                            <label><input type="checkbox" class="i-wd"> Palavra</label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -90,26 +116,41 @@
     async function submitStudy() {
         const btn = document.querySelector('.btn-save');
         const name = document.getElementById('study_name').value;
-        if(!name) return alert("Preencha o nome do estudo");
+        
+        // Validação Básica
+        if(!name) return alert("Por favor, dê um nome ao estudo.");
 
         const cards = document.querySelectorAll('.item-card');
-        if(cards.length === 0) return alert("Adicione itens");
+        if(cards.length === 0) return alert("Adicione pelo menos uma amostra.");
 
+        // Monta o Formulário
         const fd = new FormData();
         fd.append('study_name', name);
         fd.append('welcome_message', document.getElementById('welcome_message').value);
+
+        let validationError = false;
 
         cards.forEach((card, i) => {
             const isUpload = card.querySelector(`input[value="upload"]`).checked;
             
             fd.append(`items[${i}][name]`, card.querySelector('.i-name').value);
+            // IMPORTANTE: Avisa o Python se é upload ou url
             fd.append(`items[${i}][inputType]`, isUpload ? 'upload' : 'url');
             
             if(isUpload) {
                 const f = card.querySelector('.i-file').files[0];
-                if(f) fd.append(`items[${i}][file]`, f);
+                if(f) {
+                    fd.append(`items[${i}][file]`, f);
+                } else {
+                    validationError = true; // Marcou upload mas não escolheu arquivo
+                }
             } else {
-                fd.append(`items[${i}][directUrl]`, card.querySelector('.i-url').value);
+                const urlVal = card.querySelector('.i-url').value;
+                if(urlVal) {
+                    fd.append(`items[${i}][directUrl]`, urlVal);
+                } else {
+                    validationError = true; // Marcou URL mas deixou em branco
+                }
             }
 
             fd.append(`items[${i}][caption]`, card.querySelector('.i-caption').value);
@@ -120,24 +161,55 @@
             fd.append(`items[${i}][q_word]`, card.querySelector('.i-wd').checked);
         });
 
-        btn.disabled = true; btn.innerText = "Processando...";
+        if(validationError) return alert("Verifique se todas as amostras têm um arquivo selecionado ou um link preenchido.");
+
+        // Trava o botão e avisa
+        btn.disabled = true; 
+        btn.innerText = "⏳ Processando... Isso pode levar alguns minutos para vídeos.";
 
         try {
+            // Envia para o Python
             const res = await fetch('/create_study', { method: 'POST', body: fd });
+            
+            // --- DIAGNÓSTICO DE ERRO ---
+            if (!res.ok) {
+                const statusText = res.statusText;
+                let details = "";
+                try {
+                    // Tenta ler se o Python mandou uma mensagem de erro JSON
+                    const errJson = await res.json();
+                    details = errJson.message;
+                } catch(e) {
+                    // Se falhar em ler JSON, lê como texto bruto (ex: erro do Render HTML)
+                    const errText = await res.text();
+                    if (res.status === 504) details = "Tempo esgotado (Timeout). O Render demorou muito para processar o vídeo.";
+                    else if (res.status === 413) details = "Arquivo muito grande (Máx 30MB).";
+                    else if (res.status === 502) details = "Erro de Gateway (O servidor reiniciou durante o envio).";
+                    else details = errText.substring(0, 100) + "...";
+                }
+                throw new Error(`Erro ${res.status}: ${details}`);
+            }
+
+            // Sucesso
             const json = await res.json();
             if(json.status === 'success') {
                 document.getElementById('result').style.display = 'block';
                 document.getElementById('link-url').innerText = json.link;
-                btn.innerText = "Salvo!";
+                btn.innerText = "✅ Salvo com Sucesso!";
+                window.scrollTo(0, document.body.scrollHeight);
             } else {
-                alert("Erro: " + json.message);
-                btn.disabled = false; btn.innerText = "Salvar";
+                throw new Error(json.message);
             }
+
         } catch(e) {
-            alert("Erro de conexão");
-            btn.disabled = false; btn.innerText = "Salvar";
+            console.error(e);
+            alert("FALHA NO ENVIO:\n" + e.message);
+            btn.disabled = false; 
+            btn.innerText = "💾 Tentar Novamente";
         }
     }
+    
+    // Inicia com um item vazio
     addItem();
 </script>
 </body>
