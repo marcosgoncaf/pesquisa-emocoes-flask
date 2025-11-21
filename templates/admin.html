@@ -3,136 +3,126 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel do Pesquisador</title>
+    <title>Painel do Pesquisador (Google Drive)</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h1, h2 { color: #333; }
-        label { display: block; margin-top: 15px; font-weight: bold; }
-        input, textarea, select { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-        
-        .item-card { background: #f8f9fa; border: 1px solid #ddd; padding: 15px; margin-top: 15px; border-radius: 8px; }
-        .btn { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-top: 10px; }
-        .btn:hover { background: #0056b3; }
-        .btn-green { background: #28a745; width: 100%; font-size: 18px; margin-top: 30px; }
-        .btn-red { background: #dc3545; margin-left: 10px; }
-        
-        #result-area { margin-top: 30px; padding: 20px; background: #e9ecef; border-radius: 5px; display: none; }
-        code { background: #333; color: #fff; padding: 5px; border-radius: 4px; word-break: break-all; }
+        /* (Mantenha o mesmo CSS bonito do anterior, vou omitir para economizar espaço) */
+        body { font-family: 'Segoe UI', Roboto, sans-serif; background: #f4f7f6; padding: 20px; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; }
+        .item-card { background: #fff; border: 2px solid #eee; padding: 25px; margin-top: 25px; border-radius: 10px; }
+        .btn { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn-green { background: #2ecc71; color: white; width: 100%; font-size: 16px; margin-top: 30px; }
+        input, textarea { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ccc; border-radius: 5px; }
+        .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Painel do Pesquisador 🧪</h1>
+    <h1>Novo Estudo (Upload via Drive) ☁️</h1>
+    <input type="text" id="study_name" placeholder="Nome do Estudo">
+    <textarea id="welcome_message" rows="3" placeholder="Mensagem de Boas-vindas"></textarea>
     
-    <label>Nome do Estudo</label>
-    <input type="text" id="study_name" placeholder="Ex: Teste de Queijos Artesanais">
+    <div id="items-container"></div>
     
-    <label>Mensagem de Boas-vindas</label>
-    <textarea id="welcome_message" rows="3">Bem-vindo! Hoje você avaliará 3 amostras...</textarea>
-    
-    <label>Tempo de Exposição da Imagem (ms)</label>
-    <input type="number" id="exposure_time" value="5000">
+    <button class="btn" style="background:#ddd; margin-top:20px;" onclick="addItem()">+ Adicionar Amostra</button>
+    <button class="btn btn-green" onclick="saveStudy()">💾 FAZER UPLOAD E GERAR LINK</button>
 
-    <hr>
-    <h2>Itens (Estímulos)</h2>
-    <div id="items-container">
-        </div>
-    
-    <button class="btn" onclick="addItem()">+ Adicionar Item</button>
-
-    <button class="btn btn-green" onclick="saveStudy()">💾 SALVAR E GERAR LINK</button>
-
-    <div id="result-area">
-        <h3>Estudo Criado!</h3>
-        <p>Copie o link abaixo e envie aos participantes:</p>
-        <code id="final-link">...</code>
+    <div id="result-area" style="display:none; margin-top:20px; padding:20px; background:#dff0d8;">
+        <h3>Sucesso!</h3>
+        <code id="final-link"></code>
     </div>
 </div>
 
 <script>
-    let items = [];
-
     function addItem() {
         const id = Date.now();
+        // Note que o input file agora não tem "onchange" complexo, vamos pegar o arquivo direto no final
         const html = `
             <div class="item-card" id="card-${id}">
-                <label>Nome/Código da Amostra</label>
-                <input type="text" class="i-name" placeholder="Ex: Amostra 402">
+                <div style="float:right"><button onclick="document.getElementById('card-${id}').remove()" style="color:red;border:none;background:none">X</button></div>
+                <h3>Amostra</h3>
                 
-                <label>URL da Imagem</label>
-                <input type="text" class="i-url" placeholder="https://...">
+                <label>Nome/ID:</label>
+                <input type="text" class="i-name">
                 
-                <label>Legenda (Opcional)</label>
-                <input type="text" class="i-caption" placeholder="Observe a textura...">
+                <label>Arquivo (Imagem ou Vídeo):</label>
+                <input type="file" class="i-file" accept="image/*,video/*">
                 
-                <button class="btn btn-red" onclick="remove('card-${id}')">Remover</button>
+                <label>Legenda:</label>
+                <input type="text" class="i-caption">
+                
+                <div class="cols-2" style="margin-top:10px">
+                    <div>
+                        Tempo (s): <input type="number" class="i-duration" value="5">
+                        FPS: <input type="number" class="i-fps" value="3">
+                    </div>
+                    <div>
+                        <label><input type="checkbox" class="i-q-liking" checked> Gostar</label><br>
+                        <label><input type="checkbox" class="i-q-emotions" checked> Emoções</label><br>
+                        <label><input type="checkbox" class="i-q-word"> Palavra</label>
+                    </div>
+                </div>
             </div>
         `;
         document.getElementById('items-container').insertAdjacentHTML('beforeend', html);
     }
 
-    function remove(id) {
-        document.getElementById(id).remove();
-    }
-
     async function saveStudy() {
         const name = document.getElementById('study_name').value;
-        if(!name) return alert("Dê um nome ao estudo!");
-
-        // Coleta os itens do HTML
-        const itemCards = document.querySelectorAll('.item-card');
-        const itemsData = [];
+        const btn = document.querySelector('.btn-green');
         
-        itemCards.forEach(card => {
-            itemsData.push({
-                name: card.querySelector('.i-name').value,
-                url: card.querySelector('.i-url').value,
-                caption: card.querySelector('.i-caption').value
-            });
+        const formData = new FormData();
+        formData.append('study_name', name);
+        formData.append('welcome_message', document.getElementById('welcome_message').value);
+
+        const cards = document.querySelectorAll('.item-card');
+        if(cards.length === 0) return alert("Adicione itens");
+
+        let hasFileError = false;
+        cards.forEach((card, index) => {
+            const fileInput = card.querySelector('.i-file');
+            if(fileInput.files.length === 0) hasFileError = true;
+
+            // Aqui construímos o pacote para o Python
+            formData.append(`items[${index}][name]`, card.querySelector('.i-name').value);
+            formData.append(`items[${index}][file]`, fileInput.files[0]); // Envia o arquivo binário
+            formData.append(`items[${index}][caption]`, card.querySelector('.i-caption').value);
+            formData.append(`items[${index}][duration]`, card.querySelector('.i-duration').value);
+            formData.append(`items[${index}][fps]`, card.querySelector('.i-fps').value);
+            
+            formData.append(`items[${index}][q_liking]`, card.querySelector('.i-q-liking').checked);
+            formData.append(`items[${index}][q_emotions]`, card.querySelector('.i-q-emotions').checked);
+            formData.append(`items[${index}][q_word]`, card.querySelector('.i-q-word').checked);
         });
 
-        if(itemsData.length === 0) return alert("Adicione pelo menos 1 item.");
+        if(hasFileError) return alert("Todos os itens precisam de um arquivo!");
 
-        const payload = {
-            study_name: name,
-            welcome_message: document.getElementById('welcome_message').value,
-            exposure_time: document.getElementById('exposure_time').value,
-            items: itemsData
-        };
-
-        // Envia para o Python
-        const btn = document.querySelector('.btn-green');
-        btn.innerText = "Salvando...";
+        btn.innerText = "⏳ Enviando arquivos para o Drive... (Aguarde)";
         btn.disabled = true;
 
         try {
             const res = await fetch('/create_study', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
+                body: formData // Enviamos FormData, não JSON
             });
             const data = await res.json();
             
             if(data.status === 'success') {
                 document.getElementById('result-area').style.display = 'block';
                 document.getElementById('final-link').innerText = data.link;
-                alert("Sucesso!");
+                btn.innerText = "✅ Sucesso!";
             } else {
                 alert("Erro: " + data.message);
+                btn.disabled = false;
+                btn.innerText = "💾 Tentar Novamente";
             }
         } catch(e) {
             alert("Erro de conexão");
+            btn.disabled = false;
+            btn.innerText = "💾 Tentar Novamente";
         }
-        
-        btn.innerText = "💾 SALVAR E GERAR LINK";
-        btn.disabled = false;
     }
-
-    // Adiciona um item inicial
     addItem();
 </script>
-
 </body>
 </html>
