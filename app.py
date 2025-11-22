@@ -34,7 +34,13 @@ def get_sheets_service():
     import gspread
     from google.oauth2 import service_account
     
-    SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+    # --- CORREÇÃO DO ERRO 403 AQUI ---
+    # O gspread PRECISA do escopo 'drive' para achar a planilha pelo nome,
+    # mesmo que a gente não faça upload de arquivos lá.
+    SCOPES = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive' 
+    ]
     
     creds = None
     if os.path.exists("credentials.json"):
@@ -92,7 +98,9 @@ def admin_panel(): return render_template('admin.html')
 @app.route('/create_study', methods=['POST'])
 def create_study():
     try:
+        # Garante a conexão antes de processar
         sh = get_sheets_service()
+        
         form = request.form
         files = request.files
         items = []
@@ -108,6 +116,7 @@ def create_study():
             final_url = ""
             ftype = "image"
 
+            # UPLOAD CLOUDINARY
             if input_type == 'upload' and file_obj and file_obj.filename:
                 print(f"⬆️ Uploading {file_obj.filename}...")
                 res_type = "video" if file_obj.mimetype.startswith('video') else "image"
@@ -115,6 +124,7 @@ def create_study():
                 final_url = upload_result.get('secure_url')
                 ftype = res_type
 
+            # LINK EXTERNO
             elif input_type == 'url' and direct_url:
                 final_url = direct_url
                 if any(x in direct_url.lower() for x in ['.mp4', '.mov', 'youtube', 'vimeo']): ftype = 'video'
@@ -154,7 +164,6 @@ def check_face():
     try:
         import cv2
         img = decode_image_lazy(request.json['image'])
-        # Removemos o resize que podia estar estragando a detecção
         cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         faces = cascade.detectMultiScale(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 1.1, 3)
         return jsonify({'face_detected': len(faces) > 0})
@@ -165,20 +174,20 @@ def analyze_emotion_route():
     try:
         from deepface import DeepFace
         
-        # 1. Pega imagem original (SEM RESIZE para garantir qualidade)
+        # 1. Pega imagem original (SEM REDIMENSIONAR)
         img = decode_image_lazy(request.json['image'])
         
         if img is None: return jsonify({'status': 'error', 'emotion': 'neutral'})
 
         try:
-            # 2. Análise com backend 'ssd' (Mais preciso que opencv)
-            # enforce_detection=False garante que se ele "achar" que viu algo, ele devolve, 
-            # em vez de dar erro.
+            # 2. Análise V7 (Precisão Restaurada)
+            # detector_backend='ssd' é mais preciso que opencv
+            # enforce_detection=False garante que não dá erro se o rosto estiver difícil
             res = DeepFace.analyze(
                 img_path=img, 
                 actions=['emotion'], 
                 enforce_detection=False, 
-                detector_backend='ssd', # Mudança aqui: SSD é melhor que OpenCV
+                detector_backend='ssd', 
                 silent=True
             )
             
@@ -187,14 +196,14 @@ def analyze_emotion_route():
             return jsonify({'status': 'success', 'emotion': dom})
 
         except Exception as e:
-            print(f"⚠️ DeepFace (SSD) falhou, tentando opencv: {e}")
-            # Tentativa de fallback com opencv se o SSD falhar
+            print(f"⚠️ SSD falhou, tentando opencv: {e}")
+            # Fallback para OpenCV se SSD falhar por memória
             try:
                 res = DeepFace.analyze(img_path=img, actions=['emotion'], enforce_detection=False, detector_backend='opencv', silent=True)
                 dom = res[0]['dominant_emotion'] if isinstance(res, list) else res['dominant_emotion']
                 return jsonify({'status': 'success', 'emotion': dom})
             except:
-                return jsonify({'status': 'error', 'emotion': 'neutral'}) # Último caso
+                return jsonify({'status': 'error', 'emotion': 'neutral'})
 
     except Exception as e: 
         print(f"🔥 Erro Fatal: {e}")
