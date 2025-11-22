@@ -3,9 +3,11 @@ gunicorn
 gspread
 deepface
 opencv-python-headless
-numpy
+numpy<2.0.0
 pandas
 cloudinary
 google-auth
 google-auth-oauthlib
 requests
+tensorflow
+tf-keras
