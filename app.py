@@ -9,13 +9,12 @@ from flask import Flask, render_template, request, jsonify
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024 
 
-# SEU ID DA PASTA DO DRIVE
 FOLDER_ID = '1DW-GHQLfcW6za8_fGF55urbDFWugrjdX'
 
 _drive_service = None
 _sheets_client = None
 
-# --- CONEXÃO GOOGLE (LAZY) ---
+# --- CONEXÃO GOOGLE ---
 def get_google_services():
     global _drive_service, _sheets_client
     if _drive_service and _sheets_client: return _drive_service, _sheets_client
@@ -28,7 +27,6 @@ def get_google_services():
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     
     creds = None
-    # Tenta local ou variáveis de ambiente
     if os.path.exists("credentials.json"):
         creds = service_account.Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
     else:
@@ -40,30 +38,32 @@ def get_google_services():
 
     _drive_service = build('drive', 'v3', credentials=creds)
     gc = gspread.authorize(creds)
-    _sheets_client = gc.open("Resultados Pesquisa Emoções") # Verifique se o nome da planilha está exato
+    _sheets_client = gc.open("Resultados Pesquisa Emoções")
     return _drive_service, _sheets_client
 
 # --- AUXILIARES ---
 def convert_drive_link(url):
-    """Converte links de compartilhamento do Drive para links de visualização direta"""
-    # Tenta achar o ID
     file_id = None
     patterns = [r'/file/d/([a-zA-Z0-9_-]+)', r'id=([a-zA-Z0-9_-]+)', r'/open\?id=([a-zA-Z0-9_-]+)']
     for p in patterns:
         match = re.search(p, url)
         if match:
             file_id = match.group(1)
-            break
-            
-    if file_id:
-        # Link de exportação direta (funciona melhor para tags de imagem/video)
-        return f"https://drive.google.com/uc?export=view&id={file_id}"
+            break   
+    if file_id: return f"https://drive.google.com/uc?export=view&id={file_id}"
     return url
 
+def calculate_implicit_score(emotions_list):
+    if not emotions_list: return 0
+    score_map = {'happy': 10.0, 'surprise': 8.0, 'neutral': 5.0, 'sad': 3.0, 'fear': 2.0, 'angry': 1.0, 'disgust': 0.0}
+    total = 0; valid = 0
+    for e in emotions_list:
+        if e in score_map:
+            total += score_map[e]; valid += 1
+    return round(total/valid, 1) if valid > 0 else 0
+
 def decode_image_lazy(base64_string):
-    import base64
-    import numpy as np
-    import cv2
+    import base64; import numpy as np; import cv2
     if ',' in base64_string: base64_string = base64_string.split(',')[1]
     nparr = np.frombuffer(base64.b64decode(base64_string), np.uint8)
     return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -79,7 +79,7 @@ def home():
             ws = sh.worksheet("Estudos")
             cell = ws.find(study_id, in_column=1)
             if cell: study_config = json.loads(ws.cell(cell.row, 2).value)
-        except Exception as e: print(f"Erro leitura estudo: {e}")
+        except: pass
     return render_template('index.html', study_id=study_id, study_config=study_config)
 
 @app.route('/admin')
@@ -94,22 +94,14 @@ def create_study():
         i = 0
         while True:
             if f'items[{i}][name]' not in form: break
+            durl = form.get(f'items[{i}][directUrl]')
+            itype = form.get(f'items[{i}][inputType]')
             
-            direct_url = form.get(f'items[{i}][directUrl]')
-            input_type = form.get(f'items[{i}][inputType]')
-            
-            if input_type == 'upload':
-                return jsonify({'status': 'error', 'message': "Upload direto desativado pelo Google. Use Link do Drive."}), 400
-            
-            if not direct_url:
-                return jsonify({'status': 'error', 'message': f"Item {i+1}: Link vazio."}), 400
+            if itype == 'upload': return jsonify({'status':'error', 'message':"Use Link Externo"}), 400
+            if not durl: return jsonify({'status':'error', 'message':"Link vazio"}), 400
 
-            final_url = convert_drive_link(direct_url)
-            
-            # Detecção simples de vídeo
-            ftype = 'image'
-            if 'drive.google.com' in final_url or any(x in direct_url.lower() for x in ['.mp4', '.mov', '.avi', 'youtube']):
-                ftype = 'video'
+            final_url = convert_drive_link(durl)
+            ftype = 'video' if ('drive.google.com' in final_url or any(x in durl.lower() for x in ['.mp4','.mov','.avi','youtube'])) else 'image'
 
             items.append({
                 "name": form.get(f'items[{i}][name]'),
@@ -127,28 +119,21 @@ def create_study():
             i += 1
 
         sid = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-        cfg = {
-            "study_name": form.get('study_name'),
-            "welcome_message": form.get('welcome_message'),
-            "items": items,
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
+        cfg = {"study_name": form.get('study_name'), "welcome_message": form.get('welcome_message'), "items": items, "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         
         try: ws = sh.worksheet("Estudos")
         except: ws = sh.add_worksheet("Estudos", 100, 5); ws.append_row(["ID", "Config"])
         ws.append_row([sid, json.dumps(cfg)])
         
         return jsonify({'status': 'success', 'link': f"{request.host_url.rstrip('/')}/?study_id={sid}"})
-    except Exception as e: return jsonify({'status': 'error', 'message': str(e)}), 500
+    except Exception as e: return jsonify({'status':'error', 'message':str(e)}), 500
 
 @app.route('/check_face', methods=['POST'])
 def check_face():
     try:
         import cv2
-        data = request.json
-        img = decode_image_lazy(data['image'])
+        img = decode_image_lazy(request.json['image'])
         cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        # Reduzimos minNeighbors para 3 para ser mais tolerante no check-in
         faces = cascade.detectMultiScale(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 1.1, 3)
         return jsonify({'face_detected': len(faces) > 0})
     except Exception as e: return jsonify({'error': str(e)}), 500
@@ -157,31 +142,13 @@ def check_face():
 def analyze_emotion_route():
     try:
         from deepface import DeepFace
-        data = request.json
-        img = decode_image_lazy(data['image'])
-        
-        # CONFIGURAÇÃO DE QUALIDADE
-        # enforce_detection=True -> Garante que só analisa se tiver rosto real.
-        # detector_backend='opencv' -> Rápido e leve.
+        img = decode_image_lazy(request.json['image'])
         try:
-            res = DeepFace.analyze(
-                img_path=img, 
-                actions=['emotion'], 
-                enforce_detection=True, # AQUI ESTÁ O FILTRO DE QUALIDADE
-                detector_backend='opencv',
-                silent=True
-            )
+            res = DeepFace.analyze(img_path=img, actions=['emotion'], enforce_detection=False, detector_backend='opencv', silent=True)
             dom = res[0]['dominant_emotion'] if isinstance(res, list) else res['dominant_emotion']
             return jsonify({'status': 'success', 'emotion': dom})
-            
-        except ValueError:
-            # DeepFace lança ValueError se não achar rosto com enforce_detection=True
-            return jsonify({'status': 'no_face', 'emotion': None})
-            
-    except Exception as e: 
-        # Erro genérico do servidor ou biblioteca
-        print(f"Erro DeepFace: {e}")
-        return jsonify({'status': 'error', 'emotion': None})
+        except: return jsonify({'status': 'error', 'emotion': 'neutral'})
+    except: return jsonify({'status': 'error', 'emotion': None})
 
 @app.route('/save_data', methods=['POST'])
 def save_data():
@@ -193,38 +160,39 @@ def save_data():
         rows = []
         for item in results:
             emotions = item.get('emotions_list', [])
-            # Remove nulos e erros da lista para calcular a moda
             valid_emotions = [e for e in emotions if e and e != 'erro' and e != 'no_face']
             
-            main_emo = "Inconclusivo"
-            if valid_emotions:
-                main_emo = max(set(valid_emotions), key=valid_emotions.count)
+            main_emo = max(set(valid_emotions), key=valid_emotions.count) if valid_emotions else "Inconclusivo"
+            implicit_score = calculate_implicit_score(valid_emotions)
             
-            # Metricas de Qualidade
-            total_frames = item.get('total_frames', 0)
-            valid_frames = item.get('valid_frames', 0)
-            fps_cfg = item.get('fps_config', 0)
-            duration_cfg = item.get('duration_config', 0)
-            
+            # --- AQUI ESTÁ A NOVA ORDEM DA TABELA ---
             rows.append([
-                pid, sid, item.get('stimulus'), 
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                main_emo, 
-                item.get('liking'), 
-                ", ".join(valid_emotions), # Salva lista limpa
-                item.get('word'),
-                # NOVAS COLUNAS DE RELATÓRIO
-                duration_cfg,
-                fps_cfg,
-                total_frames,
-                valid_frames
+                pid,                                    # A: Participante
+                sid,                                    # B: ID Estudo
+                item.get('stimulus'),                   # C: Estímulo
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"), # D: Data
+                item.get('duration_config', 0),         # E: Tempo(s)
+                item.get('fps_config', 0),              # F: FPS
+                item.get('total_frames', 0),            # G: Total Frames
+                item.get('valid_frames', 0),            # H: Frames Válidos
+                main_emo,                               # I: Emoção Dominante
+                implicit_score,                         # J: Scor Emoções
+                ", ".join(valid_emotions),              # K: Emoções Detalhadas
+                item.get('liking'),                     # L: Nota (Explicita)
+                item.get('word'),                       # M: Palavra
+                item.get('explicit_emotions')           # N: Emoções Explicitas (Digitado)
             ])
             
         try: ws = sh.worksheet("Resultados")
         except: 
             ws = sh.add_worksheet("Resultados", 1000, 15)
-            # Cria cabeçalho atualizado se for nova aba
-            ws.append_row(["Participante", "ID Estudo", "Estímulo", "Data", "Emoção Dominante", "Nota", "Emoções Detalhadas", "Palavra", "Tempo(s)", "FPS", "Total Frames", "Frames Válidos"])
+            # Cabeçalho novo
+            ws.append_row([
+                "Participante", "ID Estudo", "Estímulo", "Data", 
+                "Tempo(s)", "FPS", "Total Frames", "Frames Válidos", 
+                "Emoção Dominante", "Scor Emoções (0-10)", "Emoções Detalhadas (Implícitas)", 
+                "Nota (Explícita)", "Palavra", "Emoções (Explícitas)"
+            ])
             
         ws.append_rows(rows)
         return jsonify({'status': 'success'})

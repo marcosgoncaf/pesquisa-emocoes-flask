@@ -27,7 +27,7 @@
         <p id="welcome-text">Carregando...</p>
         <div id="video-wrapper"><video id="videoElement" autoplay playsinline muted></video></div>
         <p id="status-msg" style="color: orange;">Aguardando câmera...</p>
-        <input type="text" id="participant_id" placeholder="Seu Nome ou ID">
+        <input type="text" id="participant_id" placeholder="Seu Nome ou ID" autocomplete="off">
         <button id="btn-start" disabled onclick="startExperiment()">INICIAR</button>
     </div>
 
@@ -60,7 +60,7 @@
     let currentItem = 0;
     let results = [];
     let tempEmotions = [];
-    let frameStats = { total: 0, valid: 0 }; // CONTADOR DE QUALIDADE
+    let frameStats = { total: 0, valid: 0 };
     
     const video = document.getElementById('videoElement');
     const canvas = document.getElementById('hiddenCanvas');
@@ -101,14 +101,12 @@
         currentItem = idx;
         const item = studyConfig.items[idx];
         
-        // Reseta variaveis
         tempEmotions = [];
         frameStats = { total: 0, valid: 0 };
 
         const img = document.getElementById('stimulus-img');
         const vid = document.getElementById('stimulus-vid');
         
-        // Setup Mídia
         if(item.file_type === 'video') {
             img.style.display='none'; vid.style.display='block'; vid.src = item.file_data;
         } else {
@@ -122,26 +120,19 @@
         const delay = 1000 / item.fps;
         let start = Date.now();
 
-        // Loop de Captura
         captureInterval = setInterval(async () => {
-            frameStats.total++; // Contabiliza tentativa
+            frameStats.total++;
             const imgData = capture();
-            
             try {
                 const res = await fetch('/analyze_emotion', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({image:imgData}) });
                 const d = await res.json();
-                
                 if(d.status === 'success') {
                     tempEmotions.push(d.emotion);
-                    frameStats.valid++; // Contabiliza sucesso (rosto achado)
-                } else if (d.status === 'no_face') {
-                    // Ignora silenciosamente ou loga se quiser
-                    console.log("Frame ignorado: Sem rosto");
+                    frameStats.valid++;
                 }
             } catch(e) { console.error(e); }
         }, delay);
 
-        // Barra de Progresso
         progressInterval = setInterval(() => {
             let elapsed = Date.now() - start;
             document.getElementById('progress-bar').style.width = (elapsed/durationMs*100)+"%";
@@ -156,9 +147,9 @@
     function showQuestions(q) {
         const c = document.getElementById('q-container');
         c.innerHTML = '';
-        if(q.liking) c.innerHTML+='<label>Quanto gostou? (1-9)</label><input type="number" id="ans-lk" min="1" max="9">';
-        if(q.emotions) c.innerHTML+='<label>Emoções?</label><input type="text" id="ans-em" placeholder="Ex: Feliz, Surpreso">';
-        if(q.word) c.innerHTML+='<label>Uma palavra:</label><input type="text" id="ans-wd">';
+        if(q.liking) c.innerHTML+='<label>Quanto gostou? (1-9)</label><input type="number" id="ans-lk" min="1" max="9" autocomplete="off">';
+        if(q.emotions) c.innerHTML+='<label>Emoções sentidas?</label><input type="text" id="ans-em" placeholder="Ex: Feliz, Surpreso" autocomplete="off">';
+        if(q.word) c.innerHTML+='<label>Uma palavra:</label><input type="text" id="ans-wd" autocomplete="off">';
         showPage('p-questions');
     }
 
@@ -167,8 +158,9 @@
             stimulus: studyConfig.items[currentItem].name,
             liking: document.getElementById('ans-lk')?.value || "",
             word: document.getElementById('ans-wd')?.value || "",
+            // CAPTURA O TEXTO DIGITADO (EXPLÍCITO)
+            explicit_emotions: document.getElementById('ans-em')?.value || "", 
             emotions_list: tempEmotions,
-            // METADADOS DE QUALIDADE
             total_frames: frameStats.total,
             valid_frames: frameStats.valid,
             fps_config: studyConfig.items[currentItem].fps,
