@@ -2,31 +2,42 @@ import os
 import json
 import random
 import string
-import re
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 
+# --- NOVAS IMPORTAÇÕES ---
+import cloudinary
+import cloudinary.uploader
+
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024 
+# Aumentei para 60MB para aceitar vídeos maiores
+app.config['MAX_CONTENT_LENGTH'] = 60 * 1024 * 1024 
 
-FOLDER_ID = '1DW-GHQLfcW6za8_fGF55urbDFWugrjdX'
+# =============================================================================
+# --- CONFIGURAÇÃO CLOUDINARY (PREENCHA AQUI) ---
+# =============================================================================
+cloudinary.config( 
+  cloud_name = "dhbiml2um", 
+  api_key = "354775456684459", 
+  api_secret = "r9KVE03YmyzlGRV4qOy3Iux8a-E",
+  secure = True
+)
 
-_drive_service = None
 _sheets_client = None
 
-# --- CONEXÃO GOOGLE ---
-def get_google_services():
-    global _drive_service, _sheets_client
-    if _drive_service and _sheets_client: return _drive_service, _sheets_client
+# --- CONEXÃO GOOGLE SHEETS (Mantida e Verificada) ---
+def get_sheets_service():
+    global _sheets_client
+    if _sheets_client: return _sheets_client
 
-    print("🔌 Conectando Google...")
+    print("🔌 Conectando Google Sheets...")
     import gspread
     from google.oauth2 import service_account
-    from googleapiclient.discovery import build
-
-    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
     
     creds = None
+    # Tenta arquivo local ou variável de ambiente (Render)
     if os.path.exists("credentials.json"):
         creds = service_account.Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
     else:
@@ -34,25 +45,13 @@ def get_google_services():
         if creds_json:
             creds = service_account.Credentials.from_service_account_info(json.loads(creds_json), scopes=SCOPES)
     
-    if not creds: raise Exception("Credenciais não encontradas.")
+    if not creds: raise Exception("Credenciais Google não encontradas.")
 
-    _drive_service = build('drive', 'v3', credentials=creds)
     gc = gspread.authorize(creds)
     _sheets_client = gc.open("Resultados Pesquisa Emoções")
-    return _drive_service, _sheets_client
+    return _sheets_client
 
 # --- AUXILIARES ---
-def convert_drive_link(url):
-    file_id = None
-    patterns = [r'/file/d/([a-zA-Z0-9_-]+)', r'id=([a-zA-Z0-9_-]+)', r'/open\?id=([a-zA-Z0-9_-]+)']
-    for p in patterns:
-        match = re.search(p, url)
-        if match:
-            file_id = match.group(1)
-            break   
-    if file_id: return f"https://drive.google.com/uc?export=view&id={file_id}"
-    return url
-
 def calculate_implicit_score(emotions_list):
     if not emotions_list: return 0
     score_map = {'happy': 10.0, 'surprise': 8.0, 'neutral': 5.0, 'sad': 3.0, 'fear': 2.0, 'angry': 1.0, 'disgust': 0.0}
@@ -75,11 +74,11 @@ def home():
     study_config = None
     if study_id:
         try:
-            _, sh = get_google_services()
+            sh = get_sheets_service()
             ws = sh.worksheet("Estudos")
             cell = ws.find(study_id, in_column=1)
             if cell: study_config = json.loads(ws.cell(cell.row, 2).value)
-        except: pass
+        except Exception as e: print(f"Erro leitura estudo: {e}")
     return render_template('index.html', study_id=study_id, study_config=study_config)
 
 @app.route('/admin')
@@ -88,20 +87,49 @@ def admin_panel(): return render_template('admin.html')
 @app.route('/create_study', methods=['POST'])
 def create_study():
     try:
-        _, sh = get_google_services()
+        # Garante conexão com Sheets antes de começar upload pesado
+        sh = get_sheets_service()
+        
         form = request.form
+        files = request.files
         items = []
         i = 0
+        
         while True:
             if f'items[{i}][name]' not in form: break
-            durl = form.get(f'items[{i}][directUrl]')
-            itype = form.get(f'items[{i}][inputType]')
             
-            if itype == 'upload': return jsonify({'status':'error', 'message':"Use Link Externo"}), 400
-            if not durl: return jsonify({'status':'error', 'message':"Link vazio"}), 400
+            input_type = form.get(f'items[{i}][inputType]')
+            direct_url = form.get(f'items[{i}][directUrl]')
+            file_obj = files.get(f'items[{i}][file]')
+            
+            final_url = ""
+            ftype = "image"
 
-            final_url = convert_drive_link(durl)
-            ftype = 'video' if ('drive.google.com' in final_url or any(x in durl.lower() for x in ['.mp4','.mov','.avi','youtube'])) else 'image'
+            # 1. CAMINHO DO UPLOAD (CLOUDINARY)
+            if input_type == 'upload' and file_obj and file_obj.filename:
+                print(f"⬆️ Subindo para Cloudinary: {file_obj.filename}")
+                
+                # Detecta se é vídeo para o Cloudinary saber como processar
+                res_type = "video" if file_obj.mimetype.startswith('video') else "image"
+                
+                upload_result = cloudinary.uploader.upload(
+                    file_obj.stream, 
+                    resource_type = res_type,
+                    folder = "estudo_pesquisa" 
+                )
+                
+                final_url = upload_result.get('secure_url')
+                ftype = res_type
+                print(f"✅ Sucesso: {final_url}")
+
+            # 2. CAMINHO DO LINK EXTERNO
+            elif input_type == 'url' and direct_url:
+                final_url = direct_url
+                if any(x in direct_url.lower() for x in ['.mp4', '.mov', 'youtube']): 
+                    ftype = 'video'
+            
+            if not final_url: 
+                return jsonify({'status':'error', 'message':f"Item {i+1}: Arquivo ou Link inválido."}), 400
 
             items.append({
                 "name": form.get(f'items[{i}][name]'),
@@ -126,8 +154,12 @@ def create_study():
         ws.append_row([sid, json.dumps(cfg)])
         
         return jsonify({'status': 'success', 'link': f"{request.host_url.rstrip('/')}/?study_id={sid}"})
-    except Exception as e: return jsonify({'status':'error', 'message':str(e)}), 500
 
+    except Exception as e:
+        print(f"Erro Fatal Create: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# --- ROTAS DE ANÁLISE (MANTIDAS E VERIFICADAS) ---
 @app.route('/check_face', methods=['POST'])
 def check_face():
     try:
@@ -144,55 +176,53 @@ def analyze_emotion_route():
         from deepface import DeepFace
         img = decode_image_lazy(request.json['image'])
         try:
+            # Mantido enforce_detection=False para garantir frames
             res = DeepFace.analyze(img_path=img, actions=['emotion'], enforce_detection=False, detector_backend='opencv', silent=True)
             dom = res[0]['dominant_emotion'] if isinstance(res, list) else res['dominant_emotion']
             return jsonify({'status': 'success', 'emotion': dom})
-        except: return jsonify({'status': 'error', 'emotion': 'neutral'})
+        except Exception as e:
+            print(f"DeepFace Error: {e}")
+            return jsonify({'status': 'error', 'emotion': 'neutral'})
     except: return jsonify({'status': 'error', 'emotion': None})
 
 @app.route('/save_data', methods=['POST'])
 def save_data():
     try:
-        _, sh = get_google_services()
+        sh = get_sheets_service()
         data = request.json
         pid = data.get('participant_id'); sid = data.get('study_id'); results = data.get('results', [])
         
         rows = []
         for item in results:
             emotions = item.get('emotions_list', [])
+            # Remove erros da lista
             valid_emotions = [e for e in emotions if e and e != 'erro' and e != 'no_face']
             
             main_emo = max(set(valid_emotions), key=valid_emotions.count) if valid_emotions else "Inconclusivo"
             implicit_score = calculate_implicit_score(valid_emotions)
             
-            # --- AQUI ESTÁ A NOVA ORDEM DA TABELA ---
+            # ORDEM DAS COLUNAS (Conforme solicitado)
             rows.append([
                 pid,                                    # A: Participante
                 sid,                                    # B: ID Estudo
                 item.get('stimulus'),                   # C: Estímulo
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"), # D: Data
-                item.get('duration_config', 0),         # E: Tempo(s)
+                item.get('duration_config', 0),         # E: Tempo
                 item.get('fps_config', 0),              # F: FPS
                 item.get('total_frames', 0),            # G: Total Frames
                 item.get('valid_frames', 0),            # H: Frames Válidos
                 main_emo,                               # I: Emoção Dominante
-                implicit_score,                         # J: Scor Emoções
-                ", ".join(valid_emotions),              # K: Emoções Detalhadas
-                item.get('liking'),                     # L: Nota (Explicita)
+                implicit_score,                         # J: Nota Implícita
+                ", ".join(valid_emotions),              # K: Lista Emoções
+                item.get('liking'),                     # L: Nota Explícita
                 item.get('word'),                       # M: Palavra
-                item.get('explicit_emotions')           # N: Emoções Explicitas (Digitado)
+                item.get('explicit_emotions')           # N: Emoções Explícitas
             ])
             
         try: ws = sh.worksheet("Resultados")
         except: 
             ws = sh.add_worksheet("Resultados", 1000, 15)
-            # Cabeçalho novo
-            ws.append_row([
-                "Participante", "ID Estudo", "Estímulo", "Data", 
-                "Tempo(s)", "FPS", "Total Frames", "Frames Válidos", 
-                "Emoção Dominante", "Scor Emoções (0-10)", "Emoções Detalhadas (Implícitas)", 
-                "Nota (Explícita)", "Palavra", "Emoções (Explícitas)"
-            ])
+            ws.append_row(["Participante", "ID Estudo", "Estímulo", "Data", "Tempo(s)", "FPS", "Total Frames", "Frames Válidos", "Emoção Dominante", "Scor Implícito", "Lista Emoções", "Nota Explícita", "Palavra", "Emoções Explícitas"])
             
         ws.append_rows(rows)
         return jsonify({'status': 'success'})
