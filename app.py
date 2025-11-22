@@ -5,16 +5,16 @@ import string
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 
-# --- NOVAS IMPORTAÇÕES ---
+# --- IMPORTAÇÕES CLOUDINARY ---
 import cloudinary
 import cloudinary.uploader
 
 app = Flask(__name__)
-# Aumentei para 60MB para aceitar vídeos maiores
+# Limite de 60MB para aceitar vídeos no upload
 app.config['MAX_CONTENT_LENGTH'] = 60 * 1024 * 1024 
 
 # =============================================================================
-# --- CONFIGURAÇÃO CLOUDINARY (PREENCHA AQUI) ---
+# --- CONFIGURAÇÃO CLOUDINARY (PREENCHA COM SEUS DADOS) ---
 # =============================================================================
 cloudinary.config( 
   cloud_name = "dhbiml2um", 
@@ -25,7 +25,7 @@ cloudinary.config(
 
 _sheets_client = None
 
-# --- CONEXÃO GOOGLE SHEETS (Mantida e Verificada) ---
+# --- CONEXÃO GOOGLE SHEETS (Para salvar dados) ---
 def get_sheets_service():
     global _sheets_client
     if _sheets_client: return _sheets_client
@@ -37,7 +37,6 @@ def get_sheets_service():
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
     
     creds = None
-    # Tenta arquivo local ou variável de ambiente (Render)
     if os.path.exists("credentials.json"):
         creds = service_account.Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
     else:
@@ -53,6 +52,7 @@ def get_sheets_service():
 
 # --- AUXILIARES ---
 def calculate_implicit_score(emotions_list):
+    """Calcula nota de 0 a 10 baseada nas emoções"""
     if not emotions_list: return 0
     score_map = {'happy': 10.0, 'surprise': 8.0, 'neutral': 5.0, 'sad': 3.0, 'fear': 2.0, 'angry': 1.0, 'disgust': 0.0}
     total = 0; valid = 0
@@ -62,6 +62,7 @@ def calculate_implicit_score(emotions_list):
     return round(total/valid, 1) if valid > 0 else 0
 
 def decode_image_lazy(base64_string):
+    """Decodifica imagem para o DeepFace"""
     import base64; import numpy as np; import cv2
     if ',' in base64_string: base64_string = base64_string.split(',')[1]
     nparr = np.frombuffer(base64.b64decode(base64_string), np.uint8)
@@ -87,7 +88,7 @@ def admin_panel(): return render_template('admin.html')
 @app.route('/create_study', methods=['POST'])
 def create_study():
     try:
-        # Garante conexão com Sheets antes de começar upload pesado
+        # Garante conexão antes do processamento pesado
         sh = get_sheets_service()
         
         form = request.form
@@ -98,38 +99,39 @@ def create_study():
         while True:
             if f'items[{i}][name]' not in form: break
             
-            input_type = form.get(f'items[{i}][inputType]')
+            input_type = form.get(f'items[{i}][inputType]') # 'upload' ou 'url'
             direct_url = form.get(f'items[{i}][directUrl]')
             file_obj = files.get(f'items[{i}][file]')
             
             final_url = ""
             ftype = "image"
 
-            # 1. CAMINHO DO UPLOAD (CLOUDINARY)
+            # --- LÓGICA 1: UPLOAD VIA CLOUDINARY ---
             if input_type == 'upload' and file_obj and file_obj.filename:
-                print(f"⬆️ Subindo para Cloudinary: {file_obj.filename}")
+                print(f"⬆️ Iniciando upload Cloudinary: {file_obj.filename}")
                 
-                # Detecta se é vídeo para o Cloudinary saber como processar
+                # Define se é video ou imagem para o Cloudinary
                 res_type = "video" if file_obj.mimetype.startswith('video') else "image"
                 
+                # Upload direto
                 upload_result = cloudinary.uploader.upload(
                     file_obj.stream, 
                     resource_type = res_type,
-                    folder = "estudo_pesquisa" 
+                    folder = "estudo_emocoes"
                 )
                 
                 final_url = upload_result.get('secure_url')
                 ftype = res_type
-                print(f"✅ Sucesso: {final_url}")
+                print(f"✅ Upload concluído: {final_url}")
 
-            # 2. CAMINHO DO LINK EXTERNO
+            # --- LÓGICA 2: LINK EXTERNO ---
             elif input_type == 'url' and direct_url:
                 final_url = direct_url
                 if any(x in direct_url.lower() for x in ['.mp4', '.mov', 'youtube']): 
                     ftype = 'video'
             
             if not final_url: 
-                return jsonify({'status':'error', 'message':f"Item {i+1}: Arquivo ou Link inválido."}), 400
+                return jsonify({'status':'error', 'message':f"Item {i+1}: Selecione um arquivo ou cole um link."}), 400
 
             items.append({
                 "name": form.get(f'items[{i}][name]'),
@@ -156,16 +158,16 @@ def create_study():
         return jsonify({'status': 'success', 'link': f"{request.host_url.rstrip('/')}/?study_id={sid}"})
 
     except Exception as e:
-        print(f"Erro Fatal Create: {e}")
+        print(f"Erro Fatal: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# --- ROTAS DE ANÁLISE (MANTIDAS E VERIFICADAS) ---
 @app.route('/check_face', methods=['POST'])
 def check_face():
     try:
         import cv2
         img = decode_image_lazy(request.json['image'])
         cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        # Tolerância alta (minNeighbors=3) para check-in fácil
         faces = cascade.detectMultiScale(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 1.1, 3)
         return jsonify({'face_detected': len(faces) > 0})
     except Exception as e: return jsonify({'error': str(e)}), 500
@@ -176,13 +178,14 @@ def analyze_emotion_route():
         from deepface import DeepFace
         img = decode_image_lazy(request.json['image'])
         try:
-            # Mantido enforce_detection=False para garantir frames
+            # enforce_detection=False: Permite analisar mesmo se o rosto não estiver perfeito (Correção dos 0 frames)
             res = DeepFace.analyze(img_path=img, actions=['emotion'], enforce_detection=False, detector_backend='opencv', silent=True)
             dom = res[0]['dominant_emotion'] if isinstance(res, list) else res['dominant_emotion']
             return jsonify({'status': 'success', 'emotion': dom})
         except Exception as e:
-            print(f"DeepFace Error: {e}")
-            return jsonify({'status': 'error', 'emotion': 'neutral'})
+            # Se falhar mesmo assim, loga e retorna erro tratado
+            print(f"DeepFace Warning: {e}")
+            return jsonify({'status': 'error', 'emotion': 'neutral'}) 
     except: return jsonify({'status': 'error', 'emotion': None})
 
 @app.route('/save_data', methods=['POST'])
@@ -201,22 +204,22 @@ def save_data():
             main_emo = max(set(valid_emotions), key=valid_emotions.count) if valid_emotions else "Inconclusivo"
             implicit_score = calculate_implicit_score(valid_emotions)
             
-            # ORDEM DAS COLUNAS (Conforme solicitado)
+            # --- NOVA ORDEM DA TABELA SOLICITADA ---
             rows.append([
-                pid,                                    # A: Participante
-                sid,                                    # B: ID Estudo
-                item.get('stimulus'),                   # C: Estímulo
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"), # D: Data
-                item.get('duration_config', 0),         # E: Tempo
-                item.get('fps_config', 0),              # F: FPS
-                item.get('total_frames', 0),            # G: Total Frames
-                item.get('valid_frames', 0),            # H: Frames Válidos
-                main_emo,                               # I: Emoção Dominante
-                implicit_score,                         # J: Nota Implícita
-                ", ".join(valid_emotions),              # K: Lista Emoções
-                item.get('liking'),                     # L: Nota Explícita
-                item.get('word'),                       # M: Palavra
-                item.get('explicit_emotions')           # N: Emoções Explícitas
+                pid,                                    # 1. Participante
+                sid,                                    # 2. ID Estudo
+                item.get('stimulus'),                   # 3. Estímulo
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"), # 4. Data
+                item.get('duration_config', 0),         # 5. Tempo(s)
+                item.get('fps_config', 0),              # 6. FPS
+                item.get('total_frames', 0),            # 7. Total Frames
+                item.get('valid_frames', 0),            # 8. Frames Válidos
+                main_emo,                               # 9. Emoção Dominante
+                implicit_score,                         # 10. Nota Implícita
+                ", ".join(valid_emotions),              # 11. Lista Emoções
+                item.get('liking'),                     # 12. Nota Explícita
+                item.get('word'),                       # 13. Palavra
+                item.get('explicit_emotions')           # 14. Emoções Explícitas (Texto)
             ])
             
         try: ws = sh.worksheet("Resultados")

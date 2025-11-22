@@ -12,6 +12,13 @@
         .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .btn-add { background: #007bff; color: white; margin-top: 15px; }
         .btn-save { background: #28a745; color: white; width: 100%; margin-top: 30px; padding: 15px; }
+        .btn-del { position: absolute; top: 15px; right: 15px; background: transparent; color: #e74c3c; border: 1px solid #e74c3c; padding: 5px 10px; font-size: 12px; }
+        
+        .type-switch { display: flex; gap: 20px; background: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 4px; border: 1px solid #eee; }
+        .type-switch label { cursor: pointer; display: flex; align-items: center; margin: 0; font-weight: normal; }
+        .type-switch input { margin-right: 8px; }
+        
+        .hidden { display: none; }
         .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px; }
         .checkbox-group label { display: inline-flex; align-items: center; margin-right: 15px; cursor: pointer; }
         .checkbox-group input { margin-right: 5px; }
@@ -19,26 +26,46 @@
     </style>
 </head>
 <body>
+
 <div class="container">
     <h1>Novo Estudo</h1>
     <label>Nome:</label><input type="text" id="study_name">
     <label>Boas-vindas:</label><textarea id="welcome_message" rows="2"></textarea>
+
     <div id="items-list"></div>
+
     <button class="btn btn-add" onclick="addItem()">+ Adicionar Amostra</button>
     <button class="btn btn-save" onclick="submitStudy()">💾 Salvar e Gerar Link</button>
-    <div id="result"><strong>Link:</strong> <span id="link-url"></span></div>
+    
+    <div id="result">
+        <strong>Sucesso! Link:</strong> <span id="link-url" style="font-family:monospace"></span>
+    </div>
 </div>
+
 <script>
     function addItem() {
         const id = Date.now();
         const html = `
             <div class="item-card" id="card-${id}">
-                <button onclick="this.parentElement.remove()" style="float:right;color:red;border:none;background:none;cursor:pointer">X</button>
-                <h3>Amostra</h3>
-                <label>Nome:</label><input type="text" class="i-name">
-                <label>Link do Arquivo (Drive, Web, etc):</label>
-                <input type="text" class="i-url" placeholder="Cole o link aqui...">
+                <button class="btn-del" onclick="document.getElementById('card-${id}').remove()">Remover</button>
+                <h3 style="margin-top:0; color:#555">Amostra</h3>
+                
+                <label>Nome / ID:</label><input type="text" class="i-name">
+                
+                <div class="type-switch">
+                    <label><input type="radio" name="t-${id}" value="upload" checked onclick="toggle('${id}', 'upload')"> 📂 Upload (PC)</label>
+                    <label><input type="radio" name="t-${id}" value="url" onclick="toggle('${id}', 'url')"> 🔗 Link Externo</label>
+                </div>
+
+                <div id="box-upload-${id}">
+                    <input type="file" class="i-file" accept="image/*,video/*">
+                </div>
+                <div id="box-url-${id}" class="hidden">
+                    <input type="text" class="i-url" placeholder="https://...">
+                </div>
+
                 <label>Legenda:</label><input type="text" class="i-caption">
+                
                 <div class="cols-2">
                     <div>
                         <label>Tempo (s):</label><input type="number" class="i-dur" value="5">
@@ -58,19 +85,38 @@
         document.getElementById('items-list').insertAdjacentHTML('beforeend', html);
     }
 
+    function toggle(id, type) {
+        document.getElementById(`box-upload-${id}`).style.display = type === 'upload' ? 'block' : 'none';
+        document.getElementById(`box-url-${id}`).style.display = type === 'url' ? 'block' : 'none';
+    }
+
     async function submitStudy() {
         const btn = document.querySelector('.btn-save');
         const name = document.getElementById('study_name').value;
         if(!name) return alert("Preencha o nome");
-        
+
         const cards = document.querySelectorAll('.item-card');
         const fd = new FormData();
         fd.append('study_name', name);
         fd.append('welcome_message', document.getElementById('welcome_message').value);
 
+        let hasError = false;
         cards.forEach((card, i) => {
+            const isUpload = card.querySelector(`input[value="upload"]`).checked;
+            
             fd.append(`items[${i}][name]`, card.querySelector('.i-name').value);
-            fd.append(`items[${i}][directUrl]`, card.querySelector('.i-url').value);
+            fd.append(`items[${i}][inputType]`, isUpload ? 'upload' : 'url');
+            
+            if(isUpload) {
+                const f = card.querySelector('.i-file').files[0];
+                if(f) fd.append(`items[${i}][file]`, f);
+                else hasError = true;
+            } else {
+                const u = card.querySelector('.i-url').value;
+                if(u) fd.append(`items[${i}][directUrl]`, u);
+                else hasError = true;
+            }
+
             fd.append(`items[${i}][caption]`, card.querySelector('.i-caption').value);
             fd.append(`items[${i}][duration]`, card.querySelector('.i-dur').value);
             fd.append(`items[${i}][fps]`, card.querySelector('.i-fps').value);
@@ -79,7 +125,10 @@
             fd.append(`items[${i}][q_word]`, card.querySelector('.i-wd').checked);
         });
 
-        btn.disabled = true; btn.innerText = "Salvando...";
+        if(hasError) return alert("Preencha todos os arquivos ou links.");
+
+        btn.disabled = true; btn.innerText = "⏳ Enviando... (Isso pode demorar)";
+        
         try {
             const res = await fetch('/create_study', { method: 'POST', body: fd });
             const json = await res.json();
@@ -87,8 +136,14 @@
                 document.getElementById('result').style.display = 'block';
                 document.getElementById('link-url').innerText = json.link;
                 btn.innerText = "✅ Salvo!";
-            } else { alert("Erro: " + json.message); btn.disabled = false; }
-        } catch(e) { alert("Erro conexão"); btn.disabled = false; }
+            } else { 
+                alert("Erro: " + json.message); 
+                btn.disabled = false; btn.innerText = "Salvar";
+            }
+        } catch(e) { 
+            alert("Erro conexão. Verifique internet."); 
+            btn.disabled = false; btn.innerText = "Salvar";
+        }
     }
     addItem();
 </script>
